@@ -16,7 +16,7 @@ def validate_wallet_address(address: str) -> bool:
 # =========================
 # Network & Endpoints
 # =========================
-XION_NETWORK = os.getenv("XION_NETWORK", "testnet").strip().lower()
+XION_NETWORK = os.getenv("XION_NETWORK", "mainnet").strip().lower()
 
 TESTNET_ENDPOINTS: List[str] = [
     "https://api.xion-testnet-1.burnt.dev",
@@ -114,13 +114,35 @@ def _sum_unbonding(unb: Dict[str, Any]) -> int:
                 pass
     return total
 
+def get_all_balances(balances_json):
+    # Paparkan semua coin, convert uxion ke XION float, IBC tunjuk amount mentah
+    result = []
+    for coin in balances_json.get("balances", []):
+        denom = coin.get("denom")
+        amount = coin.get("amount")
+        if denom == "uxion":
+            symbol = "XION"
+            amount_disp = round(int(amount) / 1_000_000, 6)
+        elif denom.startswith("ibc/"):
+            symbol = denom  # boleh mapping ke readable jika tahu denom
+            amount_disp = int(amount)
+        else:
+            symbol = denom
+            amount_disp = int(amount)
+        result.append({
+            "denom": denom,
+            "symbol": symbol,
+            "amount": amount_disp
+        })
+    return result
+
 # =========================
 # Main wallet info
 # =========================
 async def get_wallet_info(address: str) -> dict:
     """
     Return fields utama (unit = XION float!):
-      uxion (TOTAL), spendable_uxion, liquid_uxion, staked_uxion, unbonding_uxion
+      uxion (TOTAL), spendable_uxion, liquid_uxion, staked_uxion, unbonding_uxion, balances (semua aset)
     """
     if not validate_wallet_address(address):
         return {
@@ -143,7 +165,7 @@ async def get_wallet_info(address: str) -> dict:
     start = time.time()
     last_reason = None
     chosen = None
-    DENOM = "uxion"  # 6 decimals
+    DENOM = "uxion"
 
     async with httpx.AsyncClient(headers={"User-Agent": "xguard-xion/1.2"}) as client:
         for base in ENDPOINTS:
@@ -176,11 +198,8 @@ async def get_wallet_info(address: str) -> dict:
                 anomaly = (total_XION == 0.0 and tx_count == 0)
                 chosen = base
 
-                balances_list = []
-                if isinstance(balances, dict):
-                    balances_list = balances.get("balances", [])
-                elif isinstance(balances, list):
-                    balances_list = balances
+                # Paparkan semua balances denom
+                balances_list = get_all_balances(balances)
 
                 return {
                     "address": address,
