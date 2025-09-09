@@ -4,14 +4,119 @@ import time
 import httpx
 from typing import List, Dict, Any, Optional
 
+# =========================
+# Address validation
+# =========================
 ADDR_RE = re.compile(r"^xion1[0-9a-z]{20,90}$")
 
 def validate_wallet_address(address: str) -> bool:
     """Lightweight Bech32 pattern check (cukup untuk UI)."""
     return bool(address) and bool(ADDR_RE.match(address))
 
-# ... network, endpoints, helper, sum functions ...
+# =========================
+# Network & Endpoints
+# =========================
+XION_NETWORK = os.getenv("XION_NETWORK", "testnet").strip().lower()
 
+TESTNET_ENDPOINTS: List[str] = [
+    "https://api.xion-testnet-1.burnt.dev",
+]
+
+MAINNET_ENDPOINTS: List[str] = [
+    "https://api.mainnet.xion.burnt.com",
+    "https://xion-rest.publicnode.com",
+]
+
+DEFAULT_ENDPOINTS = MAINNET_ENDPOINTS if XION_NETWORK == "mainnet" else TESTNET_ENDPOINTS
+
+_env_list = os.getenv("XION_API_ENDPOINTS")
+if _env_list:
+    ENDPOINTS: List[str] = [e.strip() for e in _env_list.split(",") if e.strip()]
+else:
+    ENDPOINTS: List[str] = DEFAULT_ENDPOINTS
+
+# =========================
+# Helper functions (sum, fetch, etc)
+# =========================
+async def _get_json(client: httpx.AsyncClient, url: str, timeout: float = 6.5) -> Optional[Dict[str, Any]]:
+    try:
+        r = await client.get(url, timeout=timeout, follow_redirects=True)
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code == 404:
+            return {}
+        return None
+    except Exception:
+        return None
+
+async def _fetch_account(client, base, address):
+    return await _get_json(client, f"{base}/cosmos/auth/v1beta1/accounts/{address}")
+
+async def _fetch_balances(client, base, address):
+    return await _get_json(client, f"{base}/cosmos/bank/v1beta1/balances/{address}")
+
+async def _fetch_spendable(client, base, address):
+    return await _get_json(client, f"{base}/cosmos/bank/v1beta1/spendable_balances/{address}")
+
+async def _fetch_tx_count(client, base, address):
+    qs = [
+        f"{base}/cosmos/tx/v1beta1/txs?events=message.sender%3D'{address}'&pagination.limit=1&pagination.count_total=true",
+        f"{base}/cosmos/tx/v1beta1/txs?events=transfer.recipient%3D'{address}'&pagination.limit=1&pagination.count_total=true",
+    ]
+    total = 0
+    saw_any = False
+    for q in qs:
+        data = await _get_json(client, q)
+        if data is None:
+            continue
+        saw_any = True
+        try:
+            total += int(data.get("pagination", {}).get("total", "0"))
+        except Exception:
+            pass
+    if not saw_any:
+        return None
+    return total
+
+async def _fetch_delegations(client, base, address):
+    return await _get_json(client, f"{base}/cosmos/staking/v1beta1/delegations/{address}")
+
+async def _fetch_unbonding(client, base, address):
+    return await _get_json(client, f"{base}/cosmos/staking/v1beta1/delegations/{address}/unbonding_delegations")
+
+def _sum_coin_list(container: Dict[str, Any], key: str, denom: str) -> int:
+    total = 0
+    for c in (container.get(key) or []):
+        if c.get("denom") == denom:
+            try:
+                total += int(c.get("amount", "0"))
+            except Exception:
+                pass
+    return total
+
+def _sum_delegations(deleg: Dict[str, Any]) -> int:
+    total = 0
+    for d in (deleg.get("delegation_responses") or []):
+        bal = d.get("balance", {})
+        try:
+            total += int(bal.get("amount", "0"))
+        except Exception:
+            pass
+    return total
+
+def _sum_unbonding(unb: Dict[str, Any]) -> int:
+    total = 0
+    for e in (unb.get("unbonding_responses") or []):
+        for entry in (e.get("entries") or []):
+            try:
+                total += int(entry.get("balance", "0"))
+            except Exception:
+                pass
+    return total
+
+# =========================
+# Main wallet info
+# =========================
 async def get_wallet_info(address: str) -> dict:
     """
     Return fields utama (unit = XION float!):
@@ -53,17 +158,14 @@ async def get_wallet_info(address: str) -> dict:
                 status = "ok" if tx_count is not None else "partial"
                 tx_count = tx_count or 0
 
-                # Debug print - audit API response
                 print(f"[DEBUG] balances response from {base}: {balances}")
 
-                # pecahan (unit: uxion int)
                 liquid_uxion    = _sum_coin_list(balances,   "balances", DENOM)
                 spendable_uxion = _sum_coin_list(spendables, "balances", DENOM)
                 staked_uxion    = _sum_delegations(deleg)
                 unbonding_uxion = _sum_unbonding(unb)
                 total_uxion     = liquid_uxion + staked_uxion + unbonding_uxion
 
-                # Convert ke XION float untuk UI
                 def to_xion(val): return round(val / 1_000_000, 6)
                 liquid_XION    = to_xion(liquid_uxion)
                 spendable_XION = to_xion(spendable_uxion)
@@ -74,7 +176,6 @@ async def get_wallet_info(address: str) -> dict:
                 anomaly = (total_XION == 0.0 and tx_count == 0)
                 chosen = base
 
-                # Make sure balances is always a list for template/UI
                 balances_list = []
                 if isinstance(balances, dict):
                     balances_list = balances.get("balances", [])
@@ -86,14 +187,11 @@ async def get_wallet_info(address: str) -> dict:
                     "status": status,
                     "endpoint": chosen,
                     "duration": round(time.time() - start, 3),
-
-                    # key balances (XION float untuk UI)
-                    "uxion": total_XION,              # explorer-style TOTAL, float
+                    "uxion": total_XION,
                     "spendable_uxion": spendable_XION,
                     "liquid_uxion": liquid_XION,
                     "staked_uxion": staked_XION,
                     "unbonding_uxion": unbonding_XION,
-
                     "balances": balances_list,
                     "tx_count": tx_count,
                     "failed_txs": 0,
@@ -104,7 +202,6 @@ async def get_wallet_info(address: str) -> dict:
                 print(f"[ERROR] {base}: {e}")
                 continue
 
-    # Semua endpoint gagal
     print(f"[ERROR] Semua endpoint gagal. Last reason: {last_reason}, endpoint: {chosen}")
     return {
         "address": address,
