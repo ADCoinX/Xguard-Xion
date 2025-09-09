@@ -25,26 +25,58 @@ It is designed to bridge **Web3 ↔ Traditional Finance** by offering wallet saf
 
 ## Architecture  
 
-┌─────────────────────────────┐
-│        Frontend (UI)        │
-│  TailwindCSS + Jinja2       │
-└─────────────┬───────────────┘
-│
-▼
-┌─────────────────────────────┐
-│        FastAPI Backend      │
-│ - Address validation        │
-│ - AI risk engine (v2)       │
-│ - Fallback RPC rotation     │
-│ - ISO 20022 XML export      │
-│ - RWA contract queries      │
-└─────────────┬───────────────┘
-│
-▼
-┌─────────────────────────────┐
-│   Xion Mainnet / Testnet    │
-│  (Cosmos SDK + CosmWasm)    │
-└─────────────────────────────┘
+                   ┌─────────────────────────┐
+                   │       User / Client      │
+                   │  - Web UI (Dark mode)    │
+                   │  - Mobile-first access   │
+                   └─────────────┬───────────┘
+                                 │
+                                 ▼
+                   ┌─────────────────────────┐
+                   │   FastAPI Backend API   │
+                   │  - Input validation     │
+                   │  - Rate limiting        │
+                   │  - Secure headers (TLS) │
+                   │  - No PII stored        │
+                   └─────────────┬───────────┘
+                                 │
+        ┌─────────────────────────────────────────────────┐
+        │                 Core Modules                    │
+        │                                                 │
+        │  Wallet Validation ────────┐                    │
+        │  - Address check            │                    │
+        │  - Balance & tx count       │                    │
+        │  - Anomaly detection        │                    │
+        │                             │                    │
+        │  Risk Engine ───────────────┼─> AI/heuristics    │
+        │  - Score 0–100              │                    │
+        │  - Flags suspicious wallets │                    │
+        │                             │                    │
+        │  RWA Module ────────────────┼─> CosmWasm query   │
+        │  - Live asset contracts     │                    │
+        │  - Future tokenization      │                    │
+        │                             │                    │
+        │  ISO Export ────────────────┼─> pain.001, pacs.008│
+        │  - XML reports for banks    │                    │
+        │                             │                    │
+        │  Metrics Logger ────────────┼─> SQLite (stateless│
+        │  - Timestamp, address, score│                    │
+        └─────────────────────────────┘                    │
+                                 │
+                                 ▼
+                   ┌─────────────────────────┐
+                   │   RPC Endpoint Layer    │
+                   │  - 5 fallback providers │
+                   │  - Cosmos SDK REST      │
+                   │  - Circuit breaker      │
+                   └─────────────┬───────────┘
+                                 │
+                                 ▼
+                   ┌─────────────────────────┐
+                   │   Xion Blockchain       │
+                   │  - Mainnet / Testnet    │
+                   │  - CosmWasm contracts   │
+                   └─────────────────────────┘
 
 ---
 
