@@ -4,40 +4,32 @@ import time
 import httpx
 from typing import List, Dict, Any, Optional
 
-# =========================
-# Address validation
-# =========================
 ADDR_RE = re.compile(r"^xion1[0-9a-z]{20,90}$")
 
 def validate_wallet_address(address: str) -> bool:
-    """Lightweight Bech32 pattern check (cukup untuk UI)."""
     return bool(address) and bool(ADDR_RE.match(address))
 
-# =========================
 # Network & Endpoints
-# =========================
 XION_NETWORK = os.getenv("XION_NETWORK", "mainnet").strip().lower()
 
-TESTNET_ENDPOINTS: List[str] = [
+TESTNET_ENDPOINTS = [
     "https://api.xion-testnet-1.burnt.dev",
 ]
 
-MAINNET_ENDPOINTS: List[str] = [
-    "https://api.mainnet.xion.burnt.com",
+MAINNET_ENDPOINTS = [
     "https://xion-rest.publicnode.com",
+    "https://api.mainnet.xion.burnt.com",
 ]
 
 DEFAULT_ENDPOINTS = MAINNET_ENDPOINTS if XION_NETWORK == "mainnet" else TESTNET_ENDPOINTS
 
 _env_list = os.getenv("XION_API_ENDPOINTS")
 if _env_list:
-    ENDPOINTS: List[str] = [e.strip() for e in _env_list.split(",") if e.strip()]
+    ENDPOINTS = [e.strip() for e in _env_list.split(",") if e.strip()]
 else:
-    ENDPOINTS: List[str] = DEFAULT_ENDPOINTS
+    ENDPOINTS = DEFAULT_ENDPOINTS
 
-# =========================
-# Helper functions (sum, fetch, etc)
-# =========================
+# Helper functions
 async def _get_json(client: httpx.AsyncClient, url: str, timeout: float = 6.5) -> Optional[Dict[str, Any]]:
     try:
         r = await client.get(url, timeout=timeout, follow_redirects=True)
@@ -115,7 +107,6 @@ def _sum_unbonding(unb: Dict[str, Any]) -> int:
     return total
 
 def get_all_balances(balances_json):
-    # Paparkan semua coin, convert uxion ke XION float, IBC tunjuk amount mentah
     result = []
     for coin in balances_json.get("balances", []):
         denom = coin.get("denom")
@@ -124,7 +115,7 @@ def get_all_balances(balances_json):
             symbol = "XION"
             amount_disp = round(int(amount) / 1_000_000, 6)
         elif denom.startswith("ibc/"):
-            symbol = denom  # boleh mapping ke readable jika tahu denom
+            symbol = denom
             amount_disp = int(amount)
         else:
             symbol = denom
@@ -136,14 +127,8 @@ def get_all_balances(balances_json):
         })
     return result
 
-# =========================
 # Main wallet info
-# =========================
 async def get_wallet_info(address: str) -> dict:
-    """
-    Return fields utama (unit = XION float!):
-      uxion (TOTAL), spendable_uxion, liquid_uxion, staked_uxion, unbonding_uxion, balances (semua aset)
-    """
     if not validate_wallet_address(address):
         return {
             "address": address,
@@ -176,11 +161,16 @@ async def get_wallet_info(address: str) -> dict:
                 deleg      = await _fetch_delegations(client, base, address) or {}
                 unb        = await _fetch_unbonding(client, base, address)   or {}
 
+                print(f"[DEBUG] balances response from {base}: {balances}")
+
+                # Kalau balances kosong atau tiada "balances", cuba endpoint lain!
+                if not balances or not balances.get("balances"):
+                    last_reason = f"{base} returned empty balances"
+                    continue
+
                 tx_count = await _fetch_tx_count(client, base, address)
                 status = "ok" if tx_count is not None else "partial"
                 tx_count = tx_count or 0
-
-                print(f"[DEBUG] balances response from {base}: {balances}")
 
                 liquid_uxion    = _sum_coin_list(balances,   "balances", DENOM)
                 spendable_uxion = _sum_coin_list(spendables, "balances", DENOM)
@@ -198,8 +188,9 @@ async def get_wallet_info(address: str) -> dict:
                 anomaly = (total_XION == 0.0 and tx_count == 0)
                 chosen = base
 
-                # Paparkan semua balances denom
                 balances_list = get_all_balances(balances)
+
+                print(f"[DEBUG] Returning balances from {base}: {balances_list}")
 
                 return {
                     "address": address,
