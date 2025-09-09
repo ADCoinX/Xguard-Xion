@@ -3,3 +3,4 @@ httpx
 jinja2
 uvicorn
 lxml
+python-multipart
