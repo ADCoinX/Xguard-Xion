@@ -18,7 +18,7 @@ MAINNET_ENDPOINTS: List[str] = [
     "https://xion-rest.publicnode.com",
 ]
 
-DEFAULT_ENDPOINTS = TESTNET_ENDPOINTS if XION_NETWORK != "mainnet" else MAINNET_ENDPOINTS
+DEFAULT_ENDPOINTS = MAINNET_ENDPOINTS if XION_NETWORK == "mainnet" else TESTNET_ENDPOINTS
 
 # Allow override via env (comma-separated)
 _env_list = os.getenv("XION_API_ENDPOINTS")
@@ -51,19 +51,16 @@ async def _get_json(client: httpx.AsyncClient, url: str, timeout: float = 6.5) -
     except Exception:
         return None
 
-# ---- bank/auth/tx/staking endpoints
-async def _fetch_account(client, base, address):    # exist/sequence
+async def _fetch_account(client, base, address):
     return await _get_json(client, f"{base}/cosmos/auth/v1beta1/accounts/{address}")
 
-async def _fetch_balances(client, base, address):   # total coins on account (liquid)
+async def _fetch_balances(client, base, address):
     return await _get_json(client, f"{base}/cosmos/bank/v1beta1/balances/{address}")
 
-async def _fetch_spendable(client, base, address):  # spendable subset of balances
+async def _fetch_spendable(client, base, address):
     return await _get_json(client, f"{base}/cosmos/bank/v1beta1/spendable_balances/{address}")
 
-async def _fetch_tx_count(client, base, address):   # total tx (count_total might be off on some nodes)
-    # Kira tx sebagai sender ATAU recipient untuk lebih tepat
-    # NB: beberapa node tak enable count_total → return None (kita tandakan partial)
+async def _fetch_tx_count(client, base, address):
     qs = [
         f"{base}/cosmos/tx/v1beta1/txs?events=message.sender%3D'{address}'&pagination.limit=1&pagination.count_total=true",
         f"{base}/cosmos/tx/v1beta1/txs?events=transfer.recipient%3D'{address}'&pagination.limit=1&pagination.count_total=true",
@@ -83,10 +80,10 @@ async def _fetch_tx_count(client, base, address):   # total tx (count_total migh
         return None
     return total
 
-async def _fetch_delegations(client, base, address):      # staked funds
+async def _fetch_delegations(client, base, address):
     return await _get_json(client, f"{base}/cosmos/staking/v1beta1/delegations/{address}")
 
-async def _fetch_unbonding(client, base, address):        # unbonding funds
+async def _fetch_unbonding(client, base, address):
     return await _get_json(client, f"{base}/cosmos/staking/v1beta1/delegations/{address}/unbonding_delegations")
 
 # =========================
@@ -103,7 +100,6 @@ def _sum_coin_list(container: Dict[str, Any], key: str, denom: str) -> int:
     return total
 
 def _sum_balances(balances: Dict[str, Any], denom: Optional[str] = None) -> int:
-    # jumlah semua denom atau satu denom
     total = 0
     for c in (balances.get("balances") or []):
         try:
@@ -116,7 +112,7 @@ def _sum_balances(balances: Dict[str, Any], denom: Optional[str] = None) -> int:
 def _sum_delegations(deleg: Dict[str, Any]) -> int:
     total = 0
     for d in (deleg.get("delegation_responses") or []):
-        bal = d.get("balance", {})  # Cosmos SDK newer field
+        bal = d.get("balance", {})
         try:
             total += int(bal.get("amount", "0"))
         except Exception:
@@ -138,16 +134,8 @@ def _sum_unbonding(unb: Dict[str, Any]) -> int:
 # =========================
 async def get_wallet_info(address: str) -> dict:
     """
-    Live data:
-      - account exist
-      - balances (liquid)
-      - spendable
-      - staking delegations (staked)
-      - unbonding
-      - tx_count (sender+recipient)
     Return fields utama (unit = uxion):
       uxion (TOTAL), spendable_uxion, liquid_uxion, staked_uxion, unbonding_uxion
-    Status: invalid_address | ok | partial | empty-account | unreachable
     """
     if not validate_wallet_address(address):
         return {
@@ -194,7 +182,8 @@ async def get_wallet_info(address: str) -> dict:
                 spendable_uxion = _sum_coin_list(spendables, "balances", DENOM)
                 staked_uxion    = _sum_delegations(deleg)
                 unbonding_uxion = _sum_unbonding(unb)
-                total_uxion     = spendable_uxion + staked_uxion + unbonding_uxion
+                # explorer burnt.com kira TOTAL = liquid + staked + unbonding
+                total_uxion     = liquid_uxion + staked_uxion + unbonding_uxion
 
                 anomaly = (total_uxion == 0 and tx_count == 0)
                 chosen = base
@@ -206,9 +195,9 @@ async def get_wallet_info(address: str) -> dict:
                     "duration": round(time.time() - start, 3),
 
                     # key balances (uxion)
-                    "uxion": total_uxion,               # TOTAL (≈ explorer’s base for USD calc)
+                    "uxion": total_uxion,               # explorer-style TOTAL
                     "spendable_uxion": spendable_uxion, # boleh belanja
-                    "liquid_uxion": liquid_uxion,       # bank liquid (tak semestinya spendable)
+                    "liquid_uxion": liquid_uxion,       # bank liquid
                     "staked_uxion": staked_uxion,       # delegated
                     "unbonding_uxion": unbonding_uxion, # dalam proses unbond
 
