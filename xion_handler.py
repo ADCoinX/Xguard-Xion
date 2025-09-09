@@ -4,7 +4,13 @@ import time
 import httpx
 from typing import List, Dict, Any, Optional
 
-# ... [network, endpoints, helper, sum functions: kekal, tak perlu ubah] ...
+ADDR_RE = re.compile(r"^xion1[0-9a-z]{20,90}$")
+
+def validate_wallet_address(address: str) -> bool:
+    """Lightweight Bech32 pattern check (cukup untuk UI)."""
+    return bool(address) and bool(ADDR_RE.match(address))
+
+# ... network, endpoints, helper, sum functions ...
 
 async def get_wallet_info(address: str) -> dict:
     """
@@ -68,7 +74,13 @@ async def get_wallet_info(address: str) -> dict:
                 anomaly = (total_XION == 0.0 and tx_count == 0)
                 chosen = base
 
-                # Return sentiasa, jangan skip walaupun acct kosong!
+                # Make sure balances is always a list for template/UI
+                balances_list = []
+                if isinstance(balances, dict):
+                    balances_list = balances.get("balances", [])
+                elif isinstance(balances, list):
+                    balances_list = balances
+
                 return {
                     "address": address,
                     "status": status,
@@ -82,7 +94,7 @@ async def get_wallet_info(address: str) -> dict:
                     "staked_uxion": staked_XION,
                     "unbonding_uxion": unbonding_XION,
 
-                    "balances": balances.get("balances", []) if isinstance(balances, dict) else [],
+                    "balances": balances_list,
                     "tx_count": tx_count,
                     "failed_txs": 0,
                     "anomaly": anomaly,
