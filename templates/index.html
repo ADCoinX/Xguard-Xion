@@ -80,9 +80,9 @@
       <!-- Auth Panel (Google/Apple) -->
       <section class="panel" id="authPanel">
         <div class="input-row" style="gap:12px; flex-wrap:wrap">
-          <button id="loginGoogle" class="btn btn-primary">🔐 Sign in with Google</button>
-          <button id="loginApple"  class="btn btn-primary"> Sign in with Apple</button>
-          <button id="logout" class="btn btn-ghost" style="display:none">🚪 Log out</button>
+          <button id="loginGoogle" class="btn btn-primary">Sign in with Google</button>
+          <button id="loginApple"  class="btn btn-primary">Sign in with Apple</button>
+          <button id="logout" class="btn btn-ghost" style="display:none">Log out</button>
         </div>
         <div id="acct" class="section" style="display:none">
           <h2>Account</h2>
@@ -90,31 +90,31 @@
             <div class="k">Xion Address</div><div class="v mono" id="addr">-</div>
           </div>
           <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px">
-            <button id="validateBtn" class="btn btn-warn">✅ Validate My Account</button>
-            <button id="copyBtn" class="btn btn-ghost">📋 Copy Address</button>
+            <button id="validateBtn" class="btn btn-warn">Validate My Account</button>
+            <button id="copyBtn" class="btn btn-ghost">Copy Address</button>
           </div>
           <p style="color:#c9c9d6; font-size:.9rem; margin-top:8px">
             *Alamat diambil dari sesi login (account abstraction). Tiada input manual diperlukan.
           </p>
         </div>
 
-        <!-- Old manual form kept as fallback (hidden until no SDK) -->
+        <!-- Manual form fallback -->
         <form method="post" action="/validate" class="input-row" id="manualForm" style="display:none">
           <input class="input mono" name="wallet_addr" placeholder="Enter Xion wallet (xion1…)" required>
-          <button type="submit" class="btn btn-primary">✅ Validate Wallet</button>
+          <button type="submit" class="btn btn-primary">Validate Wallet</button>
         </form>
 
         <div class="btns">
           <button class="btn btn-disabled" disabled>
-            🧱 List RWA Assets <span class="pill">IN DEV</span>
+            List RWA Assets <span class="pill">IN DEV</span>
           </button>
-          <a class="btn btn-warn" href="/iso/pain001.xml" download>⬇️ Download ISO XML</a>
-          <a class="btn btn-ghost" href="/metrics">📈 Show Metrics</a>
-          <a class="btn btn-ghost" href="/docs" target="_blank">📘 API Docs</a>
+          <a class="btn btn-warn" href="/iso/pain001.xml" download>Download ISO XML</a>
+          <a class="btn btn-ghost" href="/metrics">Show Metrics</a>
+          <a class="btn btn-ghost" href="/docs" target="_blank">API Docs</a>
         </div>
       </section>
 
-      <!-- Results (Jinja server-side as before) -->
+      <!-- Results -->
       {% if result %}
       <section class="section">
         <h2>Result</h2>
@@ -163,22 +163,16 @@
     </section>
   </main>
 
-  <!-- ===== SDKs (CDN) ===== -->
-  <!-- 1) Web3Auth Modal (untuk Google/Apple login) -->
+  <!-- SDKs -->
   <script src="https://cdn.jsdelivr.net/npm/@web3auth/modal@9/dist/index.umd.min.js"></script>
-  <!-- 2) Crypto libs untuk derive cosmos/xion bech32 dari private key -->
   <script src="https://cdn.jsdelivr.net/npm/elliptic@6.5.4/dist/elliptic.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hash.js@1.1.7/dist/hash.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bech32@2.0.0/index.min.js"></script>
 
   <script>
-    // ====== SETUP ======
-    // TODO: letak Client ID Web3Auth kau di sini
     const WEB3AUTH_CLIENT_ID = "PASTE_YOUR_WEB3AUTH_CLIENT_ID_HERE";
-    // Xion bech32 prefix:
     const BECH32_PREFIX = "xion";
 
-    // Small toast
     function toast(msg, danger=false){
       const t = document.createElement("div");
       t.textContent = msg;
@@ -192,86 +186,73 @@
       document.body.appendChild(t); setTimeout(()=> t.remove(), 2000);
     }
 
-    // Derive cosmos-like bech32 (xion1...) from secp256k1 private key
     function privKeyToXionAddress(hexPriv){
       const ec = new elliptic.ec("secp256k1");
       const key = ec.keyFromPrivate(hexPriv, "hex");
-      const pub = key.getPublic(true, "array"); // compressed pubkey (33 bytes)
-      const sha = hashjs.sha256().update(pub).digest(); // sha256(pubkey)
-      const rip = hashjs.ripemd160().update(sha).digest(); // ripemd160(sha256(pubkey)) -> 20 bytes
+      const pub = key.getPublic(true, "array");
+      const sha = hashjs.sha256().update(pub).digest();
+      const rip = hashjs.ripemd160().update(sha).digest();
       const words = bech32.bech32.toWords(Uint8Array.from(rip));
       return bech32.bech32.encode(BECH32_PREFIX, words);
     }
 
-    // Web3Auth bootstrap
     let web3auth = null;
-    let loggedPrivKey = null;
     let detectedAddr = null;
 
     async function initWeb3Auth(){
       if (!window.Web3Auth) {
-        // SDK tak load → fallback manual form
         document.getElementById("manualForm").style.display = "flex";
         return;
       }
       web3auth = new window.Web3AuthModal.Web3Auth({
         clientId: WEB3AUTH_CLIENT_ID,
-        web3AuthNetwork: "sapphire_devnet", // dev network; tukar ke prod bila perlu
+        web3AuthNetwork: "sapphire_devnet",
         chainConfig: {
-          chainNamespace: "other", // bukan EVM
+          chainNamespace: "other",
           chainId: "xion-testnet-1",
-          rpcTarget: "https://api.xion-testnet-1.burnt.dev", // REST target (untuk context)
+          rpcTarget: "https://api.xion-testnet-1.burnt.dev",
           displayName: "Xion Testnet",
           ticker: "UXION",
           tickerName: "UXION",
         },
-        uiConfig: {
-          appName: "XGuard-Xion",
-          mode: "dark",
-        },
+        uiConfig: { appName: "XGuard-Xion", mode: "dark" },
       });
       await web3auth.initModal();
     }
 
     function showAccount(addr){
-      const acct = document.getElementById("acct");
-      const addrEl = document.getElementById("addr");
-      addrEl.textContent = addr;
-      acct.style.display = "block";
+      document.getElementById("addr").textContent = addr;
+      document.getElementById("acct").style.display = "block";
       document.getElementById("logout").style.display = "inline-block";
     }
 
     async function doLogin(provider){
       if (!web3auth){ toast("SDK not ready", true); return; }
       try{
-        // Open modal → select provider
         const providerConfig = provider === "google" ? { loginProvider:"google" } : { loginProvider:"apple" };
         await web3auth.connectTo(window.Web3AuthModal.WALLET_ADAPTERS.OPENLOGIN, providerConfig);
 
-        // Ambil private key (MPC) dari sesi
         const privKey = await web3auth?.provider?.request({ method: "private_key" });
         if (!privKey){ throw new Error("Private key not available"); }
 
-        loggedPrivKey = privKey;
         detectedAddr = privKeyToXionAddress(privKey);
         showAccount(detectedAddr);
         toast("Login success");
       }catch(e){
-        toast("Login gagal: " + (e?.message || e), true);
+        toast("Login failed: " + (e?.message || e), true);
       }
     }
 
     async function doLogout(){
       try{ await web3auth.logout(); }catch(_){}
-      loggedPrivKey = null; detectedAddr = null;
+      detectedAddr = null;
       document.getElementById("acct").style.display = "none";
       document.getElementById("logout").style.display = "none";
       toast("Logged out");
     }
 
-    // POST ke /validate (guna address yang detected)
     function postValidate(addr){
-      if (!addr){ toast("Tiada address dikesan", true); return; }
+      if (!addr){ toast("No address detected", true); return; }
       const form = document.createElement("form");
       form.method = "POST"; form.action = "/validate";
       const inp = document.createElement("input");
@@ -279,16 +260,12 @@
       form.appendChild(inp); document.body.appendChild(form); form.submit();
     }
 
-    // Copy to clipboard
     function copy(text){
       navigator.clipboard.writeText(text).then(()=> toast("Copied"));
     }
 
-    // Bind UI
     window.addEventListener("DOMContentLoaded", async () => {
       await initWeb3Auth();
-
-      // Kalau SDK tak ready → fallback form manual
       if (!web3auth){ document.getElementById("manualForm").style.display = "flex"; return; }
 
       document.getElementById("loginGoogle").onclick = ()=> doLogin("google");
