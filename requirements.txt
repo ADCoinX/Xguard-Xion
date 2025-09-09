@@ -3,4 +3,3 @@ httpx
 jinja2
 uvicorn
 lxml
-sqlite3
