@@ -37,7 +37,6 @@ async def get_wallet_info(address: str) -> dict:
     async with httpx.AsyncClient(headers={"User-Agent": "xguard-xion/1.2"}) as client:
         for base in ENDPOINTS:
             try:
-                # Jangan skip jika acct kosong, explorer burnt.com pun kadang2 kosong.
                 acct = await _fetch_account(client, base, address)
                 balances   = await _fetch_balances(client, base, address)   or {}
                 spendables = await _fetch_spendable(client, base, address)  or {}
@@ -49,7 +48,7 @@ async def get_wallet_info(address: str) -> dict:
                 tx_count = tx_count or 0
 
                 # Debug print - audit API response
-                print(f"[DEBUG] balances response {base}:", balances)
+                print(f"[DEBUG] balances response from {base}: {balances}")
 
                 # pecahan (unit: uxion int)
                 liquid_uxion    = _sum_coin_list(balances,   "balances", DENOM)
@@ -59,13 +58,14 @@ async def get_wallet_info(address: str) -> dict:
                 total_uxion     = liquid_uxion + staked_uxion + unbonding_uxion
 
                 # Convert ke XION float untuk UI
-                liquid_XION    = liquid_uxion    / 1_000_000
-                spendable_XION = spendable_uxion / 1_000_000
-                staked_XION    = staked_uxion    / 1_000_000
-                unbonding_XION = unbonding_uxion / 1_000_000
-                total_XION     = total_uxion     / 1_000_000
+                def to_xion(val): return round(val / 1_000_000, 6)
+                liquid_XION    = to_xion(liquid_uxion)
+                spendable_XION = to_xion(spendable_uxion)
+                staked_XION    = to_xion(staked_uxion)
+                unbonding_XION = to_xion(unbonding_uxion)
+                total_XION     = to_xion(total_uxion)
 
-                anomaly = (total_XION == 0 and tx_count == 0)
+                anomaly = (total_XION == 0.0 and tx_count == 0)
                 chosen = base
 
                 # Return sentiasa, jangan skip walaupun acct kosong!
@@ -82,7 +82,7 @@ async def get_wallet_info(address: str) -> dict:
                     "staked_uxion": staked_XION,
                     "unbonding_uxion": unbonding_XION,
 
-                    "balances": balances.get("balances", []),
+                    "balances": balances.get("balances", []) if isinstance(balances, dict) else [],
                     "tx_count": tx_count,
                     "failed_txs": 0,
                     "anomaly": anomaly,
@@ -93,6 +93,7 @@ async def get_wallet_info(address: str) -> dict:
                 continue
 
     # Semua endpoint gagal
+    print(f"[ERROR] Semua endpoint gagal. Last reason: {last_reason}, endpoint: {chosen}")
     return {
         "address": address,
         "status": "unreachable",
