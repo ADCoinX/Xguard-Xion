@@ -1,234 +1,162 @@
 import os
-import re
-import time
-import httpx
-from typing import List, Dict, Any, Optional
+from typing import Optional
+import uvicorn
 
-ADDR_RE = re.compile(r"^xion1[0-9a-z]{20,90}$")
+from fastapi import FastAPI, Request, Form, status
+from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
-def validate_wallet_address(address: str) -> bool:
-    return bool(address) and bool(ADDR_RE.match(address))
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import RedirectResponse
+from starlette.datastructures import MutableHeaders
 
-# Network & Endpoints
-XION_NETWORK = os.getenv("XION_NETWORK", "mainnet").strip().lower()
+from xion_handler import validate_wallet_address, get_wallet_info
+from risk_engine import calculate_risk_score
+from rwa_handler import get_rwa_assets
+from iso_export import generate_iso_pain001
+from metrics import log_metrics, fetch_metrics
+from utils import rate_limiter
 
-TESTNET_ENDPOINTS = [
-    "https://api.xion-testnet-1.burnt.dev",
-]
+app = FastAPI()
 
-MAINNET_ENDPOINTS = [
-    "https://xion-rest.publicnode.com",
-    "https://api.mainnet.xion.burnt.com",
-    "https://xion-mainnet-rest.chainlayer.network",
-    "https://xion-mainnet-api.bigdipper.live",
-    "https://xion-mainnet-api.customnode.com",
-]
+# -------------------- Security Headers (updated CSP) --------------------
+CDN_JS = "https://cdn.jsdelivr.net"
+WEB3AUTH = "https://*.web3auth.io"
+TORUS = "https://*.toruswallet.io"
+GOOGLE_FONTS_CSS = "https://fonts.googleapis.com"
+GOOGLE_FONTS_STATIC = "https://fonts.gstatic.com"
+IMG_REMOTE = "https://*.googleusercontent.com https://*.githubusercontent.com https://avatars.githubusercontent.com"
 
-DEFAULT_ENDPOINTS = MAINNET_ENDPOINTS if XION_NETWORK == "mainnet" else TESTNET_ENDPOINTS
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        resp = await call_next(request)
+        headers = MutableHeaders(resp.headers)
+        headers["X-Frame-Options"] = "DENY"
+        headers["X-Content-Type-Options"] = "nosniff"
+        headers["Referrer-Policy"] = "no-referrer"
+        headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            f"script-src 'self' {CDN_JS} {WEB3AUTH} 'unsafe-eval'; "
+            f"style-src 'self' 'unsafe-inline' {GOOGLE_FONTS_CSS}; "
+            f"font-src 'self' {GOOGLE_FONTS_STATIC}; "
+            f"img-src 'self' data: {IMG_REMOTE}; "
+            "connect-src 'self' "
+                "https://api.xion-testnet-1.burnt.dev "
+                "https://api.mainnet.xion.burnt.com "
+                "https://xion-rest.publicnode.com "
+                f"{WEB3AUTH} {TORUS} "
+                "https://*.googleapis.com https://*.google.com https://api.github.com https://github.com; "
+            f"frame-src {WEB3AUTH} {TORUS}; "
+            "base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
+        )
+        return resp
 
-_env_list = os.getenv("XION_API_ENDPOINTS")
-if _env_list:
-    ENDPOINTS = [e.strip() for e in _env_list.split(",") if e.strip()]
-else:
-    ENDPOINTS = DEFAULT_ENDPOINTS
+app.add_middleware(SecurityHeadersMiddleware)
 
-# Helper functions
-async def _get_json(client: httpx.AsyncClient, url: str, timeout: float = 6.5) -> Optional[Dict[str, Any]]:
-    try:
-        r = await client.get(url, timeout=timeout, follow_redirects=True)
-        if r.status_code == 200:
-            return r.json()
-        if r.status_code == 404:
-            return {}
-        return None
-    except Exception:
-        return None
+# -------------------- CORS (include OPTIONS) --------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
-async def _fetch_account(client, base, address):
-    return await _get_json(client, f"{base}/cosmos/auth/v1beta1/accounts/{address}")
+# -------------------- Static & Templates --------------------
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
-async def _fetch_balances(client, base, address):
-    return await _get_json(client, f"{base}/cosmos/bank/v1beta1/balances/{address}")
+# -------------------- Simple IP rate limit --------------------
+@app.middleware("http")
+async def ip_rate_limit_middleware(request: Request, call_next):
+    ip = request.client.host if request.client else "unknown"
+    if not rate_limiter(ip):
+        return Response("Too many requests. Try again later.", status_code=status.HTTP_429_TOO_MANY_REQUESTS)
+    return await call_next(request)
 
-async def _fetch_spendable(client, base, address):
-    return await _get_json(client, f"{base}/cosmos/bank/v1beta1/spendable_balances/{address}")
+# -------------------- Health check --------------------
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True, "release": os.getenv("RELEASE", "dev")}
 
-async def _fetch_tx_count(client, base, address):
-    qs = [
-        f"{base}/cosmos/tx/v1beta1/txs?events=message.sender%3D'{address}'&pagination.limit=1&pagination.count_total=true",
-        f"{base}/cosmos/tx/v1beta1/txs?events=transfer.recipient%3D'{address}'&pagination.limit=1&pagination.count_total=true",
-    ]
-    total = 0
-    saw_any = False
-    for q in qs:
-        data = await _get_json(client, q)
-        if data is None:
-            continue
-        saw_any = True
-        try:
-            total += int(data.get("pagination", {}).get("total", "0"))
-        except Exception:
-            pass
-    if not saw_any:
-        return None
-    return total
+# -------------------- Routes --------------------
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
-async def _fetch_delegations(client, base, address):
-    return await _get_json(client, f"{base}/cosmos/staking/v1beta1/delegations/{address}")
+@app.get("/validate")
+async def validate_get():
+    return RedirectResponse(url="/", status_code=303)
 
-async def _fetch_unbonding(client, base, address):
-    return await _get_json(client, f"{base}/cosmos/staking/v1beta1/delegations/{address}/unbonding_delegations")
-
-def _sum_coin_list(container: Dict[str, Any], key: str, denom: str) -> int:
-    total = 0
-    for c in (container.get(key) or []):
-        if c.get("denom") == denom:
-            try:
-                total += int(c.get("amount", "0"))
-            except Exception:
-                pass
-    return total
-
-def _sum_delegations(deleg: Dict[str, Any]) -> int:
-    total = 0
-    for d in (deleg.get("delegation_responses") or []):
-        bal = d.get("balance", {})
-        try:
-            total += int(bal.get("amount", "0"))
-        except Exception:
-            pass
-    return total
-
-def _sum_unbonding(unb: Dict[str, Any]) -> int:
-    total = 0
-    for e in (unb.get("unbonding_responses") or []):
-        for entry in (e.get("entries") or []):
-            try:
-                total += int(entry.get("balance", "0"))
-            except Exception:
-                pass
-    return total
-
-def get_all_balances(balances_json):
-    result = []
-    for coin in balances_json.get("balances", []):
-        denom = coin.get("denom")
-        amount = coin.get("amount")
-        if denom == "uxion":
-            symbol = "XION"
-            amount_disp = round(int(amount) / 1_000_000, 6)
-        elif denom.startswith("ibc/"):
-            symbol = denom
-            amount_disp = int(amount)
-        else:
-            symbol = denom
-            amount_disp = int(amount)
-        result.append({
-            "denom": denom,
-            "symbol": symbol,
-            "amount": amount_disp
-        })
-    return result
-
-# Main wallet info
-async def get_wallet_info(address: str) -> dict:
-    if not validate_wallet_address(address):
-        return {
-            "address": address,
-            "status": "invalid_address",
-            "reason": "Invalid Xion bech32 format",
-            "endpoint": None,
-            "duration": 0.0,
-            "uxion": 0.0,
-            "spendable_uxion": 0.0,
-            "liquid_uxion": 0.0,
-            "staked_uxion": 0.0,
-            "unbonding_uxion": 0.0,
-            "balances": [],
-            "tx_count": 0,
-            "failed_txs": 0,
-            "anomaly": True,
-        }
-
-    start = time.time()
-    last_reason = None
-    chosen = None
-    DENOM = "uxion"
-
-    async with httpx.AsyncClient(headers={"User-Agent": "xguard-xion/1.2"}) as client:
-        for base in ENDPOINTS:
-            try:
-                acct = await _fetch_account(client, base, address)
-                balances   = await _fetch_balances(client, base, address)   or {}
-                spendables = await _fetch_spendable(client, base, address)  or {}
-                deleg      = await _fetch_delegations(client, base, address) or {}
-                unb        = await _fetch_unbonding(client, base, address)   or {}
-
-                print(f"[DEBUG] balances response from {base}: {balances}")
-
-                # Kalau balances kosong atau tiada "balances", cuba endpoint lain!
-                if not balances or not balances.get("balances"):
-                    last_reason = f"{base} returned empty balances"
-                    continue
-
-                tx_count = await _fetch_tx_count(client, base, address)
-                status = "ok" if tx_count is not None else "partial"
-                tx_count = tx_count or 0
-
-                liquid_uxion    = _sum_coin_list(balances,   "balances", DENOM)
-                spendable_uxion = _sum_coin_list(spendables, "balances", DENOM)
-                staked_uxion    = _sum_delegations(deleg)
-                unbonding_uxion = _sum_unbonding(unb)
-                total_uxion     = liquid_uxion + staked_uxion + unbonding_uxion
-
-                def to_xion(val): return round(val / 1_000_000, 6)
-                liquid_XION    = to_xion(liquid_uxion)
-                spendable_XION = to_xion(spendable_uxion)
-                staked_XION    = to_xion(staked_uxion)
-                unbonding_XION = to_xion(unbonding_uxion)
-                total_XION     = to_xion(total_uxion)
-
-                anomaly = (total_XION == 0.0 and tx_count == 0)
-                chosen = base
-
-                balances_list = get_all_balances(balances)
-
-                print(f"[DEBUG] Returning balances from {base}: {balances_list}")
-
-                return {
-                    "address": address,
-                    "status": status,
-                    "endpoint": chosen,
-                    "duration": round(time.time() - start, 3),
-                    "uxion": total_XION,
-                    "spendable_uxion": spendable_XION,
-                    "liquid_uxion": liquid_XION,
-                    "staked_uxion": staked_XION,
-                    "unbonding_uxion": unbonding_XION,
-                    "balances": balances_list,
-                    "tx_count": tx_count,
-                    "failed_txs": 0,
-                    "anomaly": anomaly,
-                }
-            except Exception as e:
-                last_reason = str(e)
-                print(f"[ERROR] {base}: {e}")
-                continue
-
-    print(f"[ERROR] Semua endpoint gagal. Last reason: {last_reason}, endpoint: {chosen}")
-    return {
-        "address": address,
-        "status": "unreachable",
-        "reason": last_reason or "All endpoints failed",
-        "endpoint": chosen,
-        "duration": round(time.time() - start, 3),
-        "uxion": 0.0,
-        "spendable_uxion": 0.0,
-        "liquid_uxion": 0.0,
-        "staked_uxion": 0.0,
-        "unbonding_uxion": 0.0,
-        "balances": [],
-        "tx_count": 0,
-        "failed_txs": 0,
-        "anomaly": True,
+@app.post("/validate", response_class=HTMLResponse)
+async def validate_post(request: Request, wallet_addr: str = Form(...)):
+    if not validate_wallet_address(wallet_addr):
+        return templates.TemplateResponse(
+            "index.html",
+            {"request": request, "result": "Invalid Xion address format.", "score": None,
+             "wallet": None, "metrics": fetch_metrics()}
+        )
+    w = await get_wallet_info(wallet_addr)
+    wallet_view = {
+        "address": w.get("address"),
+        "balance": int(w.get("uxion") or w.get("balance_total") or 0),
+        "tx_count": int(w.get("tx_count") or 0),
+        "failed_txs": int(w.get("failed_txs") or 0),
+        "anomaly": bool(w.get("anomaly", False)),
+        "status": (w.get("status") or "ok"),
+        "duration": float(w.get("duration") or 0.0),
+        "endpoint": w.get("endpoint"),
     }
+    try:
+        score = calculate_risk_score({
+            "status": wallet_view["status"],
+            "uxion": wallet_view["balance"],
+            "tx_count": wallet_view["tx_count"],
+            "failed_txs": wallet_view["failed_txs"],
+            "anomaly": wallet_view["anomaly"],
+        })
+    except Exception:
+        score = 50
+    try:
+        log_metrics(wallet_addr, wallet_view["duration"], score, wallet_view["status"])
+    except Exception:
+        pass
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "result": f"Validation complete for {wallet_addr}.",
+            "score": score,
+            "wallet": wallet_view,
+            "metrics": fetch_metrics(),
+        },
+    )
+
+@app.get("/metrics", response_class=HTMLResponse)
+async def metrics_page(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request, "metrics": fetch_metrics()})
+
+@app.get("/rwa/assets", response_class=HTMLResponse)
+async def rwa_assets(request: Request):
+    assets = await get_rwa_assets()
+    return templates.TemplateResponse("index.html", {"request": request, "rwa": assets})
+
+@app.get("/iso/pain001.xml")
+async def iso_export(wallet_addr: Optional[str] = None):
+    m = fetch_metrics()
+    address = wallet_addr or (m[0]["address"] if m else None)
+    if not address:
+        return Response("No wallet address to export.", status_code=400)
+    xml_content = generate_iso_pain001(address)
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename=\"pain001-{address}.xml\"'},
+    )
+
+@app.get("/static/Xguard-logo.png")
+async def logo():
+    return FileResponse("static/Xguard-logo.png")
