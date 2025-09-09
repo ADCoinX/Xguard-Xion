@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>XGuard-Xion Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+    <img src="/static/Xguard-logo.png" alt="Logo" class="logo">
+    <h1>XGuard-Xion</h1>
+    <div class="card">
+        <form method="post" action="/validate">
+            <input type="text" name="wallet_addr" placeholder="Enter Xion wallet (xion1...)" required>
+            <button type="submit" class="btn green">Validate Wallet</button>
+        </form>
+        <a href="/metrics" class="btn orange">Show Metrics</a>
+        <a href="/rwa/assets" class="btn green">List RWA Assets</a>
+        <a href="/iso/pain001.xml" class="btn orange">Download ISO XML</a>
+    </div>
+    {% if result %}
+        <div class="result">
+            <h2>Result</h2>
+            <p>{{ result }}</p>
+            {% if score is not none %}
+                <p>Risk Score: <b style="color: #0fd17b">{{ score }}</b></p>
+            {% endif %}
+            {% if wallet %}
+                <ul>
+                    <li>Address: <b>{{ wallet.address }}</b></li>
+                    <li>Balance: <b>{{ wallet.balance }}</b></li>
+                    <li>Tx Count: <b>{{ wallet.tx_count }}</b></li>
+                    <li>Failed Tx: <b>{{ wallet.failed_txs }}</b></li>
+                    <li>Anomaly: <b>{{ wallet.anomaly }}</b></li>
+                </ul>
+            {% endif %}
+        </div>
+    {% endif %}
+    {% if metrics %}
+        <div class="metrics">
+            <h2>Metrics</h2>
+            <table>
+                <tr><th>Timestamp</th><th>Address</th><th>Duration</th><th>Score</th><th>Status</th></tr>
+                {% for m in metrics %}
+                <tr>
+                    <td>{{ m.timestamp }}</td>
+                    <td>{{ m.address }}</td>
+                    <td>{{ m.duration }}</td>
+                    <td>{{ m.score }}</td>
+                    <td>{{ m.status }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    {% endif %}
+    {% if rwa %}
+        <div class="rwa">
+            <h2>RWA Assets</h2>
+            <ul>
+                {% for asset in rwa %}
+                    <li>ID: {{ asset.id }} | Name: {{ asset.name }} | Value: {{ asset.value }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+</div>
+</body>
+</html>
