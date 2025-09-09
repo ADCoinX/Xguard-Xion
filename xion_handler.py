@@ -6,8 +6,13 @@ ADDR_RE = re.compile(r"^xion1[0-9a-z]{20,90}$")
 def validate_wallet_address(address: str) -> bool:
     return bool(address) and bool(ADDR_RE.match(address))
 
+# Network & Endpoints
 XION_NETWORK = os.getenv("XION_NETWORK", "mainnet").strip().lower()
-TESTNET_ENDPOINTS = ["https://api.xion-testnet-1.burnt.dev"]
+
+TESTNET_ENDPOINTS = [
+    "https://api.xion-testnet-1.burnt.dev",
+]
+
 MAINNET_ENDPOINTS = [
     "https://xion-rest.publicnode.com",
     "https://api.mainnet.xion.burnt.com",
@@ -15,8 +20,12 @@ MAINNET_ENDPOINTS = [
     "https://xion-mainnet-api.bigdipper.live",
     "https://xion-mainnet-api.customnode.com",
 ]
+
 DEFAULT_ENDPOINTS = MAINNET_ENDPOINTS if XION_NETWORK == "mainnet" else TESTNET_ENDPOINTS
-_env_list = os.getenv("XION_API_ENDPOINTS")
+
+
+_env_list = (os.getenv("XION_API_ENDPOINTS") or "").strip()
+ENDPOINTS: List[str] = [e.strip() for e in _env_list.split(",") if e.strip()] or DEFAULT_ENDPOINTS
 ENDPOINTS: List[str] = [e.strip() for e in _env_list.split(",") if _env_list] or DEFAULT_ENDPOINTS
 
 # --- circuit breaker ---
