@@ -14,9 +14,7 @@ TESTNET_ENDPOINTS: List[str] = [
 ]
 
 MAINNET_ENDPOINTS: List[str] = [
-    # Tukar ikut doc rasmi bila final
     "https://api.mainnet.xion.burnt.com",
-    # Fallback pihak ke-3 (guna kalau dipercayai)
     "https://xion-rest.publicnode.com",
 ]
 
@@ -53,49 +51,59 @@ async def _get_json(client: httpx.AsyncClient, url: str, timeout: float = 6.5) -
     except Exception:
         return None
 
-async def _fetch_balances(client: httpx.AsyncClient, base: str, address: str) -> Optional[Dict[str, Any]]:
-    return await _get_json(client, f"{base}/cosmos/bank/v1beta1/balances/{address}")
-
-async def _fetch_account(client: httpx.AsyncClient, base: str, address: str) -> Optional[Dict[str, Any]]:
+# ---- bank/auth/tx/staking endpoints
+async def _fetch_account(client, base, address):    # exist/sequence
     return await _get_json(client, f"{base}/cosmos/auth/v1beta1/accounts/{address}")
 
-async def _fetch_tx_count(client: httpx.AsyncClient, base: str, address: str) -> Optional[int]:
-    # Cosmos tx REST; tak semua node enable count_total, so guard
-    q = (
-        f"{base}/cosmos/tx/v1beta1/txs"
-        f"?events=message.sender%3D'{address}'"
-        f"&pagination.limit=1&pagination.count_total=true&order_by=ORDER_BY_DESC"
-    )
-    data = await _get_json(client, q)
-    if data is None:
-        return None
-    try:
-        return int(data.get("pagination", {}).get("total", "0"))
-    except Exception:
-        return 0
+async def _fetch_balances(client, base, address):   # total coins on account (liquid)
+    return await _get_json(client, f"{base}/cosmos/bank/v1beta1/balances/{address}")
 
-async def _fetch_failed_txs_sample(client: httpx.AsyncClient, base: str, address: str, sample: int = 50) -> Optional[int]:
-    # Optional sampling: tarik beberapa tx_responses dan kira yang code != 0
-    # Elak heavy pagination (cukup untuk heuristic)
-    q = (
-        f"{base}/cosmos/tx/v1beta1/txs"
-        f"?events=message.sender%3D'{address}'"
-        f"&pagination.limit={sample}&order_by=ORDER_BY_DESC"
-    )
-    data = await _get_json(client, q)
-    if data is None:
-        return None
-    failures = 0
-    for txr in data.get("tx_responses", []) or []:
+async def _fetch_spendable(client, base, address):  # spendable subset of balances
+    return await _get_json(client, f"{base}/cosmos/bank/v1beta1/spendable_balances/{address}")
+
+async def _fetch_tx_count(client, base, address):   # total tx (count_total might be off on some nodes)
+    # Kira tx sebagai sender ATAU recipient untuk lebih tepat
+    # NB: beberapa node tak enable count_total → return None (kita tandakan partial)
+    qs = [
+        f"{base}/cosmos/tx/v1beta1/txs?events=message.sender%3D'{address}'&pagination.limit=1&pagination.count_total=true",
+        f"{base}/cosmos/tx/v1beta1/txs?events=transfer.recipient%3D'{address}'&pagination.limit=1&pagination.count_total=true",
+    ]
+    total = 0
+    saw_any = False
+    for q in qs:
+        data = await _get_json(client, q)
+        if data is None:
+            continue
+        saw_any = True
         try:
-            code = int(txr.get("code", 0))
-            if code != 0:
-                failures += 1
+            total += int(data.get("pagination", {}).get("total", "0"))
         except Exception:
             pass
-    return failures
+    if not saw_any:
+        return None
+    return total
 
-def _sum_amount(balances: Dict[str, Any], denom: Optional[str] = None) -> int:
+async def _fetch_delegations(client, base, address):      # staked funds
+    return await _get_json(client, f"{base}/cosmos/staking/v1beta1/delegations/{address}")
+
+async def _fetch_unbonding(client, base, address):        # unbonding funds
+    return await _get_json(client, f"{base}/cosmos/staking/v1beta1/delegations/{address}/unbonding_delegations")
+
+# =========================
+# Sum helpers
+# =========================
+def _sum_coin_list(container: Dict[str, Any], key: str, denom: str) -> int:
+    total = 0
+    for c in (container.get(key) or []):
+        if c.get("denom") == denom:
+            try:
+                total += int(c.get("amount", "0"))
+            except Exception:
+                pass
+    return total
+
+def _sum_balances(balances: Dict[str, Any], denom: Optional[str] = None) -> int:
+    # jumlah semua denom atau satu denom
     total = 0
     for c in (balances.get("balances") or []):
         try:
@@ -105,81 +113,109 @@ def _sum_amount(balances: Dict[str, Any], denom: Optional[str] = None) -> int:
             pass
     return total
 
+def _sum_delegations(deleg: Dict[str, Any]) -> int:
+    total = 0
+    for d in (deleg.get("delegation_responses") or []):
+        bal = d.get("balance", {})  # Cosmos SDK newer field
+        try:
+            total += int(bal.get("amount", "0"))
+        except Exception:
+            pass
+    return total
+
+def _sum_unbonding(unb: Dict[str, Any]) -> int:
+    total = 0
+    for e in (unb.get("unbonding_responses") or []):
+        for entry in (e.get("entries") or []):
+            try:
+                total += int(entry.get("balance", "0"))
+            except Exception:
+                pass
+    return total
+
 # =========================
 # Public API
 # =========================
 async def get_wallet_info(address: str) -> dict:
     """
-    Tarik live data dari REST Xion:
-      - account (untuk detect kewujudan)
-      - balances (bank)
-      - tx_count (tx)
-      - failed_txs (sample; optional)
-    Status yang mungkin: invalid_address | ok | partial | empty-account | unreachable
+    Live data:
+      - account exist
+      - balances (liquid)
+      - spendable
+      - staking delegations (staked)
+      - unbonding
+      - tx_count (sender+recipient)
+    Return fields utama (unit = uxion):
+      uxion (TOTAL), spendable_uxion, liquid_uxion, staked_uxion, unbonding_uxion
+    Status: invalid_address | ok | partial | empty-account | unreachable
     """
     if not validate_wallet_address(address):
         return {
             "address": address,
-            "balance_total": 0,
-            "balances": [],
-            "tx_count": 0,
-            "failed_txs": 0,
-            "anomaly": True,
             "status": "invalid_address",
             "reason": "Invalid Xion bech32 format",
             "endpoint": None,
             "duration": 0.0,
+            "uxion": 0,
+            "spendable_uxion": 0,
+            "liquid_uxion": 0,
+            "staked_uxion": 0,
+            "unbonding_uxion": 0,
+            "balances": [],
+            "tx_count": 0,
+            "failed_txs": 0,
+            "anomaly": True,
         }
 
     start = time.time()
     last_reason = None
     chosen = None
+    DENOM = "uxion"  # 6 decimals
 
-    # Optional: enable failed-tx sampling via env
-    ENABLE_FAIL_SAMPLE = os.getenv("XION_SAMPLE_FAILED_TXS", "0") in ("1", "true", "True")
-
-    async with httpx.AsyncClient(headers={"User-Agent": "xguard-xion/1.0"}) as client:
+    async with httpx.AsyncClient(headers={"User-Agent": "xguard-xion/1.2"}) as client:
         for base in ENDPOINTS:
             try:
-                # 1) Account info → detect kewujudan (elak treat down as empty)
                 acct = await _fetch_account(client, base, address)
                 if acct is None:
                     last_reason = f"account query failed @ {base}"
                     continue
 
-                # 2) Balances
-                balances = await _fetch_balances(client, base, address)
-                if balances is None:
-                    last_reason = f"balances query failed @ {base}"
-                    continue
+                balances   = await _fetch_balances(client, base, address)   or {}
+                spendables = await _fetch_spendable(client, base, address)  or {}
+                deleg      = await _fetch_delegations(client, base, address) or {}
+                unb        = await _fetch_unbonding(client, base, address)   or {}
 
-                # 3) Tx count
                 tx_count = await _fetch_tx_count(client, base, address)
                 status = "ok" if tx_count is not None else "partial"
                 tx_count = tx_count or 0
 
-                # 4) Failed txs (optional sampling)
-                failed_txs = 0
-                if ENABLE_FAIL_SAMPLE and tx_count > 0:
-                    ft = await _fetch_failed_txs_sample(client, base, address, sample=50)
-                    failed_txs = (ft or 0)
+                # pecahan
+                liquid_uxion    = _sum_coin_list(balances,   "balances", DENOM)
+                spendable_uxion = _sum_coin_list(spendables, "balances", DENOM)
+                staked_uxion    = _sum_delegations(deleg)
+                unbonding_uxion = _sum_unbonding(unb)
+                total_uxion     = spendable_uxion + staked_uxion + unbonding_uxion
 
-                total_amt = _sum_amount(balances)  # semua denom
-                uxion_amt = _sum_amount(balances, "uxion")  # denom utama
-                anomaly = (uxion_amt == 0 and tx_count == 0)
-
+                anomaly = (total_uxion == 0 and tx_count == 0)
                 chosen = base
+
                 return {
                     "address": address,
-                    "balance_total": total_amt,
-                    "uxion": uxion_amt,
-                    "balances": balances.get("balances", []),
-                    "tx_count": tx_count,
-                    "failed_txs": failed_txs,
-                    "anomaly": anomaly,
-                    "status": status if (total_amt or tx_count or acct is not None) else "empty-account",
+                    "status": status if (acct is not None) else "empty-account",
                     "endpoint": chosen,
                     "duration": round(time.time() - start, 3),
+
+                    # key balances (uxion)
+                    "uxion": total_uxion,               # TOTAL (≈ explorer’s base for USD calc)
+                    "spendable_uxion": spendable_uxion, # boleh belanja
+                    "liquid_uxion": liquid_uxion,       # bank liquid (tak semestinya spendable)
+                    "staked_uxion": staked_uxion,       # delegated
+                    "unbonding_uxion": unbonding_uxion, # dalam proses unbond
+
+                    "balances": balances.get("balances", []),
+                    "tx_count": tx_count,
+                    "failed_txs": 0,    # boleh tambah sampling kalau perlu
+                    "anomaly": anomaly,
                 }
             except Exception as e:
                 last_reason = str(e)
@@ -188,14 +224,17 @@ async def get_wallet_info(address: str) -> dict:
     # Semua endpoint gagal
     return {
         "address": address,
-        "balance_total": 0,
-        "uxion": 0,
-        "balances": [],
-        "tx_count": 0,
-        "failed_txs": 0,
-        "anomaly": True,
         "status": "unreachable",
         "reason": last_reason or "All endpoints failed",
         "endpoint": chosen,
         "duration": round(time.time() - start, 3),
+        "uxion": 0,
+        "spendable_uxion": 0,
+        "liquid_uxion": 0,
+        "staked_uxion": 0,
+        "unbonding_uxion": 0,
+        "balances": [],
+        "tx_count": 0,
+        "failed_txs": 0,
+        "anomaly": True,
     }
