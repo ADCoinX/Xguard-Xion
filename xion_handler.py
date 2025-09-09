@@ -19,6 +19,9 @@ TESTNET_ENDPOINTS = [
 MAINNET_ENDPOINTS = [
     "https://xion-rest.publicnode.com",
     "https://api.mainnet.xion.burnt.com",
+    "https://xion-mainnet-rest.chainlayer.network",
+    "https://xion-mainnet-api.bigdipper.live",
+    "https://xion-mainnet-api.customnode.com",
 ]
 
 DEFAULT_ENDPOINTS = MAINNET_ENDPOINTS if XION_NETWORK == "mainnet" else TESTNET_ENDPOINTS
