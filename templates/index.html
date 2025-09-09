@@ -2,8 +2,125 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>XGuard-Xion Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600&family=Roboto:wght@400&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #001F3F; /* Biru gelap premium */
+            color: #FFFFFF; /* Teks putih untuk kontras */
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            padding: 40px;
+            background-color: #000000; /* Hitam eksklusif */
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(212, 175, 55, 0.2); /* Shadow emas halus */
+            text-align: center;
+        }
+        .logo {
+            width: 150px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 32px;
+            color: #D4AF37; /* Emas untuk tajuk */
+            margin-bottom: 30px;
+        }
+        h2 {
+            font-size: 24px;
+            color: #D4AF37;
+            margin-bottom: 15px;
+        }
+        .card {
+            background-color: #1A1A1A; /* Kelabu gelap untuk kad */
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            margin-bottom: 40px;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        input[type="text"] {
+            width: 100%;
+            max-width: 400px;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 1px solid #D4AF37;
+            border-radius: 6px;
+            background-color: #333333;
+            color: #FFFFFF;
+            font-size: 16px;
+        }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s, background-color 0.2s;
+            margin: 10px;
+        }
+        .btn:hover {
+            transform: scale(1.05);
+        }
+        .btn.green {
+            background-color: #0FD17B;
+            color: #000000;
+        }
+        .btn.orange {
+            background-color: #FFA500;
+            color: #000000;
+        }
+        .result, .rwa, .metrics {
+            background-color: #1A1A1A;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            text-align: left;
+        }
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+        li {
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #333333;
+            font-size: 14px;
+        }
+        th {
+            background-color: #333333;
+            color: #D4AF37;
+        }
+        .footer {
+            margin-top: 40px;
+            font-size: 12px;
+            color: #A9A9A9; /* Kelabu untuk disclaimer */
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
 <div class="container">
@@ -14,9 +131,9 @@
             <input type="text" name="wallet_addr" placeholder="Enter Xion wallet (xion1...)" required>
             <button type="submit" class="btn green">Validate Wallet</button>
         </form>
-        <a href="/metrics" class="btn orange">Show Metrics</a>
         <a href="/rwa/assets" class="btn green">List RWA Assets</a>
         <a href="/iso/pain001.xml" class="btn orange">Download ISO XML</a>
+        <a href="/metrics" class="btn orange">Show Metrics</a> <!-- Metrics link kekal di sini, tapi kandungan metrics dipindah bawah -->
     </div>
     {% if result %}
         <div class="result">
@@ -36,9 +153,19 @@
             {% endif %}
         </div>
     {% endif %}
-    {% if metrics %}
+    {% if rwa %}
+        <div class="rwa">
+            <h2>RWA Assets</h2>
+            <ul>
+                {% for asset in rwa %}
+                    <li>ID: {{ asset.id }} | Name: {{ asset.name }} | Value: {{ asset.value }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+    {% if metrics %} <!-- Metrics diletak di bawah result dan RWA seperti diminta -->
         <div class="metrics">
-            <h2>Metrics</h2>
+            <h2>Metrics & User Log</h2> <!-- Tajuk ditambah 'User Log' untuk kejelasan -->
             <table>
                 <tr><th>Timestamp</th><th>Address</th><th>Duration</th><th>Score</th><th>Status</th></tr>
                 {% for m in metrics %}
@@ -53,16 +180,9 @@
             </table>
         </div>
     {% endif %}
-    {% if rwa %}
-        <div class="rwa">
-            <h2>RWA Assets</h2>
-            <ul>
-                {% for asset in rwa %}
-                    <li>ID: {{ asset.id }} | Name: {{ asset.name }} | Value: {{ asset.value }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-    {% endif %}
+    <div class="footer">
+        <p>Disclaimer: This dashboard is for informational purposes only. All data is simulated and not financial advice. Use at your own risk.</p>
+    </div>
 </div>
 </body>
 </html>
