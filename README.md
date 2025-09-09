@@ -153,13 +153,26 @@ It is designed to bridge **Web3 ↔ Traditional Finance** by offering wallet saf
 
 ---
 
-## Team  
+## 👥 Team  
 
-- **Muhammad Yusri Adib (Founder/CTO)**  
-  LinkedIn: [https://www.linkedin.com/in/yusri-adib-455aa8b7](https://www.linkedin.com/in/yusri-adib-455aa8b7)  
+**Muhammad Yusri Adib (Founder / CTO)**  
+- Founder of **ADCX Lab**, builder of cross-chain wallet validators (XRPL, Hedera, Kadena, Xion).  
+- 10+ years experience in software development and InfoSec practices.  
+- Focused on blockchain compliance, ISO20022 integration, and AI-driven risk scoring.  
+- Track record: multiple live validators deployed (CryptoGuard, HGuard, GuardianX, ProetorX).  
+- **Contact:**  
+  - 📧 Email: admin@autodigitalcoin.com  
+  - 💬 Telegram: https://t.me/ADCX_LAB  
+  - 🔗 LinkedIn: https://www.linkedin.com/in/yusri-adib-455aa8b7  
 
-- **Muhammad Mustafa Abdulmanaf (Advisor, Compliance/Audit)**  
-  LinkedIn: [https://www.linkedin.com/in/muhammad-mustafa-abdulmanaf](https://www.linkedin.com/in/muhammad-mustafa-abdulmanaf)  
+---
+
+**Muhammad Mustafa Abdulmanaf (Advisor – Compliance & Audit)**  
+- Specialist in compliance and ISO certifications (ISO27001, ISO20022).  
+- Advisory role for audit readiness and financial reporting standards.  
+- Ensures validator outputs (ISO XML) align with regulatory frameworks.  
+- **Contact:**  
+  - 🔗 LinkedIn: https://www.linkedin.com/in/muhammad-mustafa-abdulmanaf
 
 ---
 
