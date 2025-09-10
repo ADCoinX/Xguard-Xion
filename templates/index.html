@@ -5,14 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>XGuard-Xion Dashboard</title>
 
-  <!-- Font -->
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
-
   <style>
     :root{
       --bg-1:#0a0713; --bg-2:#1b0f2e; --grad-1:#6a00ff; --grad-2:#ff3e8a;
       --accent:#00ffa6; --accent-2:#ffc857; --surface:#120a1f; --border:#9237ff33;
-      --text:#f6f6f9; --muted:#c9c9d6; --shadow: 0 20px 60px rgba(0,0,0,.45), 0 2px 0 rgba(255,255,255,.04) inset; --radius:18px;
+      --text:#f6f6f9; --muted:#c9c9d6; --shadow:0 20px 60px rgba(0,0,0,.45), 0 2px 0 rgba(255,255,255,.04) inset; --radius:18px;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -25,26 +23,26 @@
       display:flex; align-items:center; justify-content:center; padding:24px;
     }
     .wrap{width:100%; max-width:1024px;}
-    .card{background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+    .card{background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
       border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:28px;}
     .brand{display:flex; align-items:center; gap:14px; margin-bottom:22px;}
     .brand img{width:120px; height:120px; border-radius:20px; background:#26133e; object-fit:contain;}
     .brand h1{font-size:clamp(22px, 2.6vw, 32px); margin:0;
-      background: linear-gradient(90deg, var(--grad-1), var(--grad-2));
+      background:linear-gradient(90deg, var(--grad-1), var(--grad-2));
       -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:700;}
     .sub{margin:4px 0 0 0; color:var(--muted); font-size:.95rem; font-weight:500;}
 
     .panel{display:grid; gap:18px; margin-top:18px;}
     .input-row{display:flex; gap:10px;}
-    .input{flex:1; min-width:0; background:linear-gradient(180deg, #1c1230, #130b23);
+    .input{flex:1; min-width:0; background:linear-gradient(180deg,#1c1230,#130b23);
       border:1px solid #8946ff44; color:var(--text); padding:14px 16px; border-radius:14px; font-size:16px; outline:none;}
 
     .btns{display:grid; grid-template-columns: repeat(2,1fr); gap:10px;}
     .btn{border:0; cursor:pointer; text-align:center; padding:14px 16px; border-radius:14px; font-weight:700; font-size:15px; box-shadow:0 10px 26px rgba(0,0,0,.35);}
-    .btn-primary{background: linear-gradient(180deg,#00ffbf,#00d18f); color:#061013;}
-    .btn-warn{background: linear-gradient(180deg,#ffd36b,#ffb642); color:#2b1900;}
+    .btn-primary{background:linear-gradient(180deg,#00ffbf,#00d18f); color:#061013;}
+    .btn-warn{background:linear-gradient(180deg,#ffd36b,#ffb642); color:#2b1900;}
     .btn-ghost{background:linear-gradient(180deg,#26133e,#1b0f2e); color:#e9defa; border:1px solid #ffffff1f;}
-    .btn-disabled{background: linear-gradient(180deg,#3a2a57,#2a1d43); color:#a693c4; border:1px dashed #9c7fe033; cursor:not-allowed;}
+    .btn-disabled{background:linear-gradient(180deg,#3a2a57,#2a1d43); color:#a693c4; border:1px dashed #9c7fe033; cursor:not-allowed;}
     .pill{font-size:.72rem; padding:4px 8px; border-radius:999px; background:#ff3e8a; color:white;}
 
     .section{margin-top:20px; border:1px solid #8b46ff22; border-radius:14px; padding:18px;}
@@ -58,7 +56,6 @@
     th{color:#d8baff; background:#170d2a}
 
     .footer{margin-top:18px; color:#a39cb8; font-size:.8rem; text-align:center}
-
     @media(max-width:840px){.btns{grid-template-columns:1fr 1fr;}.kv{grid-template-columns:1fr;}}
     @media(max-width:520px){.input-row{flex-direction:column;}.btns{grid-template-columns:1fr;}.card{padding:22px;}}
   </style>
@@ -66,7 +63,6 @@
 <body>
   <main class="wrap">
     <section class="card">
-
       <!-- Brand -->
       <header class="brand">
         <img src="/static/Xguard-logo.png" alt="XGuard Logo"
@@ -78,8 +74,8 @@
       </header>
 
       <!-- Manual form only -->
-      <section class="panel">
-        <form method="post" action="/validate" class="input-row" id="manualForm">
+      <section class="panel" id="panel">
+        <form method="post" action="/validate" class="input-row" id="manualForm" style="display:flex">
           <input class="input mono" name="wallet_addr" placeholder="Enter Xion wallet (xion1…)" required>
           <button type="submit" class="btn btn-primary">Validate Wallet</button>
         </form>
@@ -93,6 +89,51 @@
           <a class="btn btn-ghost" href="/docs" target="_blank">API Docs</a>
         </div>
       </section>
+
+      <!-- Results -->
+      {% if result %}
+      <section class="section">
+        <h2>Result</h2>
+        <div class="kv"><div class="k">Status</div><div class="v">{{ result }}</div></div>
+        {% if status %}<div class="kv"><div class="k">Code</div><div class="v mono">{{ status }}</div></div>{% endif %}
+        {% if debug_reason %}<div class="kv"><div class="k">Reason</div><div class="v mono">{{ debug_reason }}</div></div>{% endif %}
+        {% if endpoint %}<div class="kv"><div class="k">Endpoint</div><div class="v mono">{{ endpoint }}</div></div>{% endif %}
+        {% if score is not none %}
+        <div class="kv"><div class="k">Risk Score</div><div class="v"><b style="color:var(--accent)">{{ score }}</b></div></div>
+        {% endif %}
+        {% if wallet %}
+        <div class="kv"><div class="k">Address</div><div class="v mono">{{ wallet.address }}</div></div>
+        <div class="kv"><div class="k">Balance</div><div class="v">{{ wallet.balance }}</div></div>
+        <div class="kv"><div class="k">Tx Count</div><div class="v">{{ wallet.tx_count }}</div></div>
+        <div class="kv"><div class="k">Failed Tx</div><div class="v">{{ wallet.failed_txs }}</div></div>
+        <div class="kv"><div class="k">Anomaly</div><div class="v">{{ wallet.anomaly }}</div></div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {% if metrics %}
+      <section class="section">
+        <h2>Metrics & User Log</h2>
+        <div style="overflow:auto">
+          <table>
+            <thead>
+              <tr><th>Timestamp</th><th>Address</th><th>Duration</th><th>Score</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {% for m in metrics %}
+              <tr>
+                <td class="mono">{{ m.timestamp }}</td>
+                <td class="mono">{{ m.address }}</td>
+                <td>{{ m.duration }}</td>
+                <td>{{ m.score }}</td>
+                <td>{{ m.status }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
 
       <p class="footer">
         Disclaimer: This dashboard is for informational purposes only. All data is simulated and not financial advice. Use at your own risk.<br/>
