@@ -77,29 +77,9 @@
         </div>
       </header>
 
-      <!-- Auth Panel (Google/Apple) -->
-      <section class="panel" id="authPanel">
-        <div class="input-row" style="gap:12px; flex-wrap:wrap">
-          <button id="loginGoogle" class="btn btn-primary">Sign in with Google</button>
-          <button id="loginApple"  class="btn btn-primary">Sign in with Apple</button>
-          <button id="logout" class="btn btn-ghost" style="display:none">Log out</button>
-        </div>
-        <div id="acct" class="section" style="display:none">
-          <h2>Account</h2>
-          <div class="kv">
-            <div class="k">Xion Address</div><div class="v mono" id="addr">-</div>
-          </div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px">
-            <button id="validateBtn" class="btn btn-warn">Validate My Account</button>
-            <button id="copyBtn" class="btn btn-ghost">Copy Address</button>
-          </div>
-          <p style="color:#c9c9d6; font-size:.9rem; margin-top:8px">
-            *Alamat diambil dari sesi login (account abstraction). Tiada input manual diperlukan.
-          </p>
-        </div>
-
-        <!-- Manual form fallback -->
-        <form method="post" action="/validate" class="input-row" id="manualForm" style="display:none">
+      <!-- Manual form only -->
+      <section class="panel">
+        <form method="post" action="/validate" class="input-row" id="manualForm">
           <input class="input mono" name="wallet_addr" placeholder="Enter Xion wallet (xion1…)" required>
           <button type="submit" class="btn btn-primary">Validate Wallet</button>
         </form>
@@ -114,166 +94,11 @@
         </div>
       </section>
 
-      <!-- Results -->
-      {% if result %}
-      <section class="section">
-        <h2>Result</h2>
-        <div class="kv"><div class="k">Status</div><div class="v">{{ result }}</div></div>
-        {% if score is not none %}
-        <div class="kv"><div class="k">Risk Score</div><div class="v"><b style="color:var(--accent)">{{ score }}</b></div></div>
-        {% endif %}
-        {% if wallet %}
-        <div class="kv"><div class="k">Address</div><div class="v mono">{{ wallet.address }}</div></div>
-        <div class="kv"><div class="k">Balance</div><div class="v">{{ wallet.balance }}</div></div>
-        <div class="kv"><div class="k">Tx Count</div><div class="v">{{ wallet.tx_count }}</div></div>
-        <div class="kv"><div class="k">Failed Tx</div><div class="v">{{ wallet.failed_txs }}</div></div>
-        <div class="kv"><div class="k">Anomaly</div><div class="v">{{ wallet.anomaly }}</div></div>
-        {% endif %}
-      </section>
-      {% endif %}
-
-      {% if metrics %}
-      <section class="section">
-        <h2>Metrics & User Log</h2>
-        <div style="overflow:auto">
-          <table>
-            <thead>
-              <tr><th>Timestamp</th><th>Address</th><th>Duration</th><th>Score</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              {% for m in metrics %}
-              <tr>
-                <td class="mono">{{ m.timestamp }}</td>
-                <td class="mono">{{ m.address }}</td>
-                <td>{{ m.duration }}</td>
-                <td>{{ m.score }}</td>
-                <td>{{ m.status }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      {% endif %}
-
       <p class="footer">
         Disclaimer: This dashboard is for informational purposes only. All data is simulated and not financial advice. Use at your own risk.<br/>
         <span style="color:var(--accent-2)">Powered by ADCX LAB</span>
       </p>
     </section>
   </main>
-
-  <!-- SDKs -->
-  <script src="https://cdn.jsdelivr.net/npm/@web3auth/modal@9/dist/index.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/elliptic@6.5.4/dist/elliptic.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hash.js@1.1.7/dist/hash.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/bech32@2.0.0/index.min.js"></script>
-
-  <script>
-    const WEB3AUTH_CLIENT_ID = "PASTE_YOUR_WEB3AUTH_CLIENT_ID_HERE";
-    const BECH32_PREFIX = "xion";
-
-    function toast(msg, danger=false){
-      const t = document.createElement("div");
-      t.textContent = msg;
-      t.style.cssText = `
-        position:fixed; left:50%; top:18px; transform:translateX(-50%);
-        background:${danger? "#3f1a23":"#12281f"}; color:${danger? "#ffb7aa":"#b7ffe7"};
-        border:1px solid ${danger? "#ff725e55":"#00ffa655"};
-        padding:10px 14px; border-radius:12px; font-weight:600; z-index:9999;
-        box-shadow:0 10px 30px rgba(0,0,0,.45);
-      `;
-      document.body.appendChild(t); setTimeout(()=> t.remove(), 2000);
-    }
-
-    function privKeyToXionAddress(hexPriv){
-      const ec = new elliptic.ec("secp256k1");
-      const key = ec.keyFromPrivate(hexPriv, "hex");
-      const pub = key.getPublic(true, "array");
-      const sha = hashjs.sha256().update(pub).digest();
-      const rip = hashjs.ripemd160().update(sha).digest();
-      const words = bech32.bech32.toWords(Uint8Array.from(rip));
-      return bech32.bech32.encode(BECH32_PREFIX, words);
-    }
-
-    let web3auth = null;
-    let detectedAddr = null;
-
-    async function initWeb3Auth(){
-      if (!window.Web3Auth) {
-        document.getElementById("manualForm").style.display = "flex";
-        return;
-      }
-      web3auth = new window.Web3AuthModal.Web3Auth({
-        clientId: WEB3AUTH_CLIENT_ID,
-        web3AuthNetwork: "sapphire_devnet",
-        chainConfig: {
-          chainNamespace: "other",
-          chainId: "xion-testnet-1",
-          rpcTarget: "https://api.xion-testnet-1.burnt.dev",
-          displayName: "Xion Testnet",
-          ticker: "UXION",
-          tickerName: "UXION",
-        },
-        uiConfig: { appName: "XGuard-Xion", mode: "dark" },
-      });
-      await web3auth.initModal();
-    }
-
-    function showAccount(addr){
-      document.getElementById("addr").textContent = addr;
-      document.getElementById("acct").style.display = "block";
-      document.getElementById("logout").style.display = "inline-block";
-    }
-
-    async function doLogin(provider){
-      if (!web3auth){ toast("SDK not ready", true); return; }
-      try{
-        const providerConfig = provider === "google" ? { loginProvider:"google" } : { loginProvider:"apple" };
-        await web3auth.connectTo(window.Web3AuthModal.WALLET_ADAPTERS.OPENLOGIN, providerConfig);
-
-        const privKey = await web3auth?.provider?.request({ method: "private_key" });
-        if (!privKey){ throw new Error("Private key not available"); }
-
-        detectedAddr = privKeyToXionAddress(privKey);
-        showAccount(detectedAddr);
-        toast("Login success");
-      }catch(e){
-        toast("Login failed: " + (e?.message || e), true);
-      }
-    }
-
-    async function doLogout(){
-      try{ await web3auth.logout(); }catch(_){}
-      detectedAddr = null;
-      document.getElementById("acct").style.display = "none";
-      document.getElementById("logout").style.display = "none";
-      toast("Logged out");
-    }
-
-    function postValidate(addr){
-      if (!addr){ toast("No address detected", true); return; }
-      const form = document.createElement("form");
-      form.method = "POST"; form.action = "/validate";
-      const inp = document.createElement("input");
-      inp.type = "hidden"; inp.name = "wallet_addr"; inp.value = addr;
-      form.appendChild(inp); document.body.appendChild(form); form.submit();
-    }
-
-    function copy(text){
-      navigator.clipboard.writeText(text).then(()=> toast("Copied"));
-    }
-
-    window.addEventListener("DOMContentLoaded", async () => {
-      await initWeb3Auth();
-      if (!web3auth){ document.getElementById("manualForm").style.display = "flex"; return; }
-
-      document.getElementById("loginGoogle").onclick = ()=> doLogin("google");
-      document.getElementById("loginApple").onclick  = ()=> doLogin("apple");
-      document.getElementById("logout").onclick      = ()=> doLogout();
-      document.getElementById("validateBtn").onclick = ()=> postValidate(detectedAddr);
-      document.getElementById("copyBtn").onclick     = ()=> copy(detectedAddr || "");
-    });
-  </script>
 </body>
 </html>
