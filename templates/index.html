@@ -107,6 +107,27 @@
         <div class="kv"><div class="k">Tx Count</div><div class="v">{{ wallet.tx_count }}</div></div>
         <div class="kv"><div class="k">Failed Tx</div><div class="v">{{ wallet.failed_txs }}</div></div>
         <div class="kv"><div class="k">Anomaly</div><div class="v">{{ wallet.anomaly }}</div></div>
+        {% if wallet.balances %}
+        <hr>
+        <h4>REST API Balances</h4>
+        <ul>
+          {% for bal in wallet.balances %}
+            <li>{{ bal.symbol }}: {{ bal.amount }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if wallet.fallback_assets %}
+        <hr>
+        <h4>Fallback (Explorer burnt.com)</h4>
+        <div style="color:orange; margin-bottom:8px;">
+          REST node gagal, data diambil dari explorer burnt.com
+        </div>
+        <ul>
+          {% for asset in wallet.fallback_assets %}
+            <li>{{ asset.symbol }}: {{ asset.amount }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
         {% endif %}
       </section>
       {% endif %}
