@@ -109,12 +109,13 @@ async def validate_post(request: Request, wallet_addr: str = Form(...)):
         # REST failed, try scrape explorer
         try:
             fallback_assets = get_xion_explorer_assets(wallet_addr)
-            # Patch wallet_view to show balances from explorer if found
+            # PATCH: Paparkan semua asset explorer burnt.com
+            # Jumlahkan XION untuk balance, tapi fallback_assets dihantar penuh ke UI
             if fallback_assets:
                 uxion_balances = [
-                    float(a["amount"].replace(",", "").replace("XION", "").strip())
+                    float(a["amount"].replace(",", ""))
                     for a in fallback_assets
-                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").replace("XION", "").strip().replace(" ", "").replace("-", "").replace("+", "").replace("e", "").isdigit()
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()
                 ]
                 uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
         except Exception as e:
@@ -130,7 +131,7 @@ async def validate_post(request: Request, wallet_addr: str = Form(...)):
         "status": (w.get("status") or "ok"),
         "duration": float(w.get("duration") or 0.0),
         "endpoint": w.get("endpoint"),
-        "fallback_assets": fallback_assets,
+        "fallback_assets": fallback_assets,  # <-- PATCH: Papar semua asset explorer burnt.com
     }
     try:
         score = calculate_risk_score({
