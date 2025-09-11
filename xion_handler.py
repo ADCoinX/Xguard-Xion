@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from xion_client import get_wallet_info, validate_wallet_address
+from xion_explorer_scraper import get_xion_explorer_assets  # <-- Import fallback scraper!
 
 router = APIRouter()
 TEMPLATES = Jinja2Templates(directory=os.getenv("TEMPLATE_DIR", "templates"))
@@ -57,12 +58,31 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
         })
         return TEMPLATES.TemplateResponse("index.html", ctx)
 
-    # PATCH: Use correct testnet endpoint if in testnet
-    # You may want to check ENV or wallet_addr prefix for mainnet/testnet
-    # For this patch, we force testnet to match new docs:
-    os.environ["XION_API_ENDPOINTS"] = "https://api.xion-testnet-2.burnt.com"
+    # PATCH: Mainnet/testnet handling (edit here for mainnet/testnet)
+    # Example: if wallet_addr.startswith("xion1"), set mainnet endpoint
+    # If you want to force testnet, uncomment below:
+    # os.environ["XION_API_ENDPOINTS"] = "https://api.xion-testnet-2.burnt.com"
+    # If mainnet:
+    os.environ["XION_API_ENDPOINTS"] = "https://api.mainnet.xion.burnt.com"
 
     info = await get_wallet_info(wallet_addr)
+
+    # PATCH: fallback to explorer scrape if no real data
+    uxion_val = float(info.get("uxion", 0.0))
+    tx_count_val = int(info.get("tx_count", 0))
+    fallback_assets = None
+    if uxion_val == 0.0 and tx_count_val == 0:
+        try:
+            fallback_assets = get_xion_explorer_assets(wallet_addr)
+            # Try to patch balance if fallback found
+            if fallback_assets:
+                uxion_balances = [
+                    float(a["amount"].replace(",", "")) for a in fallback_assets
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()
+                ]
+                uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
+        except Exception:
+            pass
 
     ctx.update({
         "result": "OK" if info.get("status") in ("ok", "partial") else info.get("status"),
@@ -71,11 +91,12 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
         "endpoint": info.get("endpoint"),
         "wallet": {
             "address": info.get("address"),
-            "balance": f'{info.get("uxion", 0.0)} XION',
+            "balance": f'{uxion_val} XION',
             "tx_count": info.get("tx_count", 0),
             "failed_txs": info.get("failed_txs", 0),
             "anomaly": info.get("anomaly", False),
             "balances": info.get("balances", []),
+            "fallback_assets": fallback_assets,
         },
     })
     ctx["score"] = risk_score(info)
@@ -98,11 +119,29 @@ async def validate_api(request: Request, wallet_addr: str = Form(None)):
             status_code=400,
         )
 
-    # PATCH: Use correct testnet endpoint if in testnet
-    os.environ["XION_API_ENDPOINTS"] = "https://api.xion-testnet-2.burnt.com"
+    # PATCH: Mainnet/testnet handling (edit here for mainnet/testnet)
+    os.environ["XION_API_ENDPOINTS"] = "https://api.mainnet.xion.burnt.com"
 
     info = await get_wallet_info(wallet_addr)
+    uxion_val = float(info.get("uxion", 0.0))
+    tx_count_val = int(info.get("tx_count", 0))
+    fallback_assets = None
+    if uxion_val == 0.0 and tx_count_val == 0:
+        try:
+            fallback_assets = get_xion_explorer_assets(wallet_addr)
+            # Try to patch balance if fallback found
+            if fallback_assets:
+                uxion_balances = [
+                    float(a["amount"].replace(",", "")) for a in fallback_assets
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()
+                ]
+                uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
+        except Exception:
+            pass
+
     info["risk_score"] = risk_score(info)
+    info["fallback_assets"] = fallback_assets
+    info["balance"] = uxion_val
     # Ensure debug fields always present (better DX)
     if not info.get("debug_reason") and info.get("reason"):
         info["debug_reason"] = info["reason"]
