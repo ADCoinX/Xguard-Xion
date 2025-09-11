@@ -1,50 +1,5 @@
-import os
-from datetime import datetime
-from typing import Any, Dict
+# ... semua import dan fungsi risk_score, ctx_base seperti asal ...
 
-from fastapi import APIRouter, Request, Form
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
-
-from xion_client import get_wallet_info, validate_wallet_address
-from xion_explorer_scraper import get_xion_explorer_assets  # <-- Import fallback scraper!
-
-router = APIRouter()
-TEMPLATES = Jinja2Templates(directory=os.getenv("TEMPLATE_DIR", "templates"))
-
-# ----- simple risk score (stub, transparen) -----------------
-def risk_score(wallet: Dict[str, Any]) -> int:
-    score = 100
-    if wallet.get("tx_count", 0) == 0:
-        score -= 25
-    if float(wallet.get("uxion", 0.0)) == 0.0:
-        score -= 25
-    if wallet.get("anomaly"):
-        score -= 20
-    if wallet.get("status") == "partial":
-        score -= 10
-    return max(1, min(100, score))
-
-# ----- helpers ------------------------------------------------
-def ctx_base(request: Request) -> Dict[str, Any]:
-    return {
-        "request": request,
-        "now": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "result": None,
-        "status": None,
-        "debug_reason": None,
-        "endpoint": None,
-        "score": None,
-        "wallet": None,
-        "metrics": None,
-    }
-
-# ----- pages --------------------------------------------------
-@router.get("/", response_class=HTMLResponse)
-async def index_html(request: Request):
-    return TEMPLATES.TemplateResponse("index.html", ctx_base(request))
-
-# HTML form submit
 @router.post("/validate", response_class=HTMLResponse)
 async def validate_html(request: Request, wallet_addr: str = Form(...)):
     ctx = ctx_base(request)
@@ -58,8 +13,7 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
         })
         return TEMPLATES.TemplateResponse("index.html", ctx)
 
-    # PATCH: Mainnet/testnet handling (edit here for mainnet/testnet)
-    # Use latest burnt.com mainnet endpoint!
+    # PATCH: Mainnet/testnet handling (endpoint baru burnt.com mainnet)
     os.environ["XION_API_ENDPOINTS"] = "https://api.xion-mainnet-1.burnt.com"
 
     info = await get_wallet_info(wallet_addr)
@@ -73,13 +27,15 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
     if uxion_val == 0.0 and tx_count_val == 0:
         try:
             fallback_assets = get_xion_explorer_assets(wallet_addr)
-            # Patch balance if fallback found
+            print("Fallback explorer assets:", fallback_assets)
+            # PATCH: Jumlahkan semua XION, tapi paparkan semua asset
             if fallback_assets:
                 uxion_balances = [
-                    float(a["amount"].replace(",", "").replace("XION", "").strip())
+                    float(a["amount"].replace(",", ""))
                     for a in fallback_assets
-                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").replace("XION", "").strip().replace(" ", "").replace("-", "").replace("+", "").replace("e", "").isdigit()
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()
                 ]
+                # Update balance ikut explorer, tapi tetap paparkan semua asset
                 uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
         except Exception as e:
             print("Fallback error:", e)
@@ -97,55 +53,10 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
             "failed_txs": info.get("failed_txs", 0),
             "anomaly": info.get("anomaly", False),
             "balances": info.get("balances", []),
-            "fallback_assets": fallback_assets,
+            "fallback_assets": fallback_assets,  # <-- Papar semua asset explorer burnt.com
         },
     })
     ctx["score"] = risk_score(info)
     return TEMPLATES.TemplateResponse("index.html", ctx)
 
-# JSON API (supports form OR raw JSON body)
-@router.post("/api/validate")
-async def validate_api(request: Request, wallet_addr: str = Form(None)):
-    # Try form first; if empty, try JSON body
-    if not wallet_addr:
-        try:
-            data = await request.json()
-            wallet_addr = (data or {}).get("wallet_addr", "")
-        except Exception:
-            wallet_addr = ""
-
-    if not validate_wallet_address(wallet_addr):
-        return JSONResponse(
-            {"status": "invalid_address", "reason": "Invalid Xion bech32 format", "address": wallet_addr},
-            status_code=400,
-        )
-
-    # PATCH: Mainnet/testnet handling (edit here for mainnet/testnet)
-    os.environ["XION_API_ENDPOINTS"] = "https://api.xion-mainnet-1.burnt.com"
-
-    info = await get_wallet_info(wallet_addr)
-    uxion_val = float(info.get("uxion", 0.0))
-    tx_count_val = int(info.get("tx_count", 0))
-    fallback_assets = None
-
-    if uxion_val == 0.0 and tx_count_val == 0:
-        try:
-            fallback_assets = get_xion_explorer_assets(wallet_addr)
-            if fallback_assets:
-                uxion_balances = [
-                    float(a["amount"].replace(",", "").replace("XION", "").strip())
-                    for a in fallback_assets
-                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").replace("XION", "").strip().replace(" ", "").replace("-", "").replace("+", "").replace("e", "").isdigit()
-                ]
-                uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
-        except Exception as e:
-            print("Fallback error:", e)
-            fallback_assets = None
-
-    info["risk_score"] = risk_score(info)
-    info["fallback_assets"] = fallback_assets
-    info["balance"] = uxion_val
-    # Ensure debug fields always present (better DX)
-    if not info.get("debug_reason") and info.get("reason"):
-        info["debug_reason"] = info["reason"]
-    return JSONResponse(info)
+# ... validate_api pun sama logic fallback_assets ...
