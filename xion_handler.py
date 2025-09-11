@@ -72,22 +72,28 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
         try:
             fallback_assets = get_xion_explorer_assets(wallet_addr)
             print("Fallback explorer assets:", fallback_assets)
-            # PATCH: Jumlahkan semua XION, tapi paparkan semua asset
+            # PATCH: Jumlahkan semua XION, dan kalau fallback_assets ada, update balance UI
             if fallback_assets:
+                # Ambil semua asset XION (termasuk delegated, reward, dsb)
                 uxion_balances = [
                     float(a["amount"].replace(",", ""))
                     for a in fallback_assets
-                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").replace(" ", "").isdigit()
                 ]
-                # Update balance ikut explorer, tapi tetap paparkan semua asset
-                uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
+                if uxion_balances:
+                    uxion_val = sum(uxion_balances)
         except Exception as e:
             print("Fallback error:", e)
             fallback_assets = None
 
+    # Jika fallback_assets wujud dan ada XION, labelkan status sebagai "fallback"
+    display_status = info.get("status")
+    if fallback_assets and uxion_val > 0:
+        display_status = "fallback_explorer"
+
     ctx.update({
-        "result": "OK" if info.get("status") in ("ok", "partial") else info.get("status"),
-        "status": info.get("status"),
+        "result": "OK" if display_status in ("ok", "partial", "fallback_explorer") else display_status,
+        "status": display_status,
         "debug_reason": info.get("debug_reason") or info.get("reason") or "-",
         "endpoint": info.get("endpoint"),
         "wallet": {
@@ -134,16 +140,22 @@ async def validate_api(request: Request, wallet_addr: str = Form(None)):
                 uxion_balances = [
                     float(a["amount"].replace(",", ""))
                     for a in fallback_assets
-                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").replace(" ", "").isdigit()
                 ]
-                uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
+                if uxion_balances:
+                    uxion_val = sum(uxion_balances)
         except Exception as e:
             print("Fallback error:", e)
             fallback_assets = None
 
+    display_status = info.get("status")
+    if fallback_assets and uxion_val > 0:
+        display_status = "fallback_explorer"
+
     info["risk_score"] = risk_score(info)
     info["fallback_assets"] = fallback_assets
     info["balance"] = uxion_val
+    info["status"] = display_status
     # Ensure debug fields always present (better DX)
     if not info.get("debug_reason") and info.get("reason"):
         info["debug_reason"] = info["reason"]
