@@ -25,8 +25,9 @@ TESTNET_ENDPOINTS: List[str] = [
     "https://api.xion-testnet-2.burnt.com",
 ]
 
+# PATCH: Use latest mainnet endpoint from Burnt docs (2025)
 MAINNET_ENDPOINTS: List[str] = [
-    "https://api.mainnet.xion.burnt.com",
+    "https://api.xion-mainnet-1.burnt.com",  # <-- PATCH: latest official mainnet REST endpoint
     "https://xion-rest.publicnode.com",
     "https://xion-mainnet-rest.chainlayer.network",
     "https://xion-mainnet-api.bigdipper.live",
