@@ -122,21 +122,23 @@ async def validate_post(request: Request, wallet_addr: str = Form(...)):
             print("Fallback error:", e)
             fallback_assets = None
 
+    # PATCH: show both REST and fallback assets
     wallet_view = {
         "address": w.get("address"),
-        "balance": uxion_val,
+        "balance": f"{uxion_val} XION",
         "tx_count": tx_count_val,
         "failed_txs": int(w.get("failed_txs") or 0),
         "anomaly": bool(w.get("anomaly", False)),
         "status": (w.get("status") or "ok"),
         "duration": float(w.get("duration") or 0.0),
         "endpoint": w.get("endpoint"),
-        "fallback_assets": fallback_assets,  # <-- PATCH: Papar semua asset explorer burnt.com
+        "balances": w.get("balances", []),           # REST balances (if any)
+        "fallback_assets": fallback_assets,           # fallback explorer assets
     }
     try:
         score = calculate_risk_score({
             "status": wallet_view["status"],
-            "uxion": wallet_view["balance"],
+            "uxion": uxion_val,
             "tx_count": wallet_view["tx_count"],
             "failed_txs": wallet_view["failed_txs"],
             "anomaly": wallet_view["anomaly"],
