@@ -1,4 +1,3 @@
-# xion_client.py
 # -*- coding: utf-8 -*-
 import os
 import re
@@ -21,8 +20,9 @@ def validate_wallet_address(address: str) -> bool:
 # =========================
 XION_NETWORK = os.getenv("XION_NETWORK", "mainnet").strip().lower()
 
+# PATCH: Use latest testnet endpoint from Burnt docs
 TESTNET_ENDPOINTS: List[str] = [
-    "https://api.xion-testnet-1.burnt.dev",
+    "https://api.xion-testnet-2.burnt.com",
 ]
 
 MAINNET_ENDPOINTS: List[str] = [
