@@ -5,3 +5,4 @@ uvicorn
 lxml
 python-multipart
 requests
+beautifulsoup4
