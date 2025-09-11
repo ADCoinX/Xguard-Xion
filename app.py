@@ -19,15 +19,16 @@ from iso_export import generate_iso_pain001
 from metrics import log_metrics, fetch_metrics
 from utils import rate_limiter
 
+from xion_explorer_scraper import get_xion_explorer_assets  # <-- fallback scraper
+
 app = FastAPI()
 
 # -------------------- Security Headers (updated CSP) --------------------
 CDN_JS = "https://cdn.jsdelivr.net"
-WEB3AUTH = "https://*.web3auth.io"
 TORUS = "https://*.toruswallet.io"
 GOOGLE_FONTS_CSS = "https://fonts.googleapis.com"
 GOOGLE_FONTS_STATIC = "https://fonts.gstatic.com"
-IMG_REMOTE = "https://*.googleusercontent.com https://*.githubusercontent.com https://avatars.githubusercontent.com"
+IMG_REMOTE = "https://*.githubusercontent.com https://avatars.githubusercontent.com"
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -39,17 +40,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            f"script-src 'self' {CDN_JS} {WEB3AUTH} 'unsafe-eval'; "
+            f"script-src 'self' {CDN_JS} 'unsafe-eval'; "
             f"style-src 'self' 'unsafe-inline' {GOOGLE_FONTS_CSS}; "
             f"font-src 'self' {GOOGLE_FONTS_STATIC}; "
             f"img-src 'self' data: {IMG_REMOTE}; "
             "connect-src 'self' "
-                "https://api.xion-testnet-1.burnt.dev "
+                "https://api.xion-testnet-2.burnt.com "
                 "https://api.mainnet.xion.burnt.com "
                 "https://xion-rest.publicnode.com "
-                f"{WEB3AUTH} {TORUS} "
-                "https://*.googleapis.com https://*.google.com https://api.github.com https://github.com; "
-            f"frame-src {WEB3AUTH} {TORUS}; "
+                f"{TORUS} "
+                "https://api.github.com https://github.com; "
+            f"frame-src {TORUS}; "
             "base-uri 'self'; form-action 'self'; frame-ancestors 'none';"
         )
         return resp
@@ -100,15 +101,31 @@ async def validate_post(request: Request, wallet_addr: str = Form(...)):
              "wallet": None, "metrics": fetch_metrics()}
         )
     w = await get_wallet_info(wallet_addr)
+    # --- PATCH: fallback to explorer scrape if no real balance ---
+    uxion_val = float(w.get("uxion") or w.get("balance_total") or 0)
+    tx_count_val = int(w.get("tx_count") or 0)
+    fallback_assets = None
+    if (uxion_val == 0.0 and tx_count_val == 0):
+        # REST failed, try scrape explorer
+        try:
+            fallback_assets = get_xion_explorer_assets(wallet_addr)
+            # Patch wallet_view to show balances from explorer if found
+            if fallback_assets:
+                uxion_balances = [float(a["amount"].replace(",", "")) for a in fallback_assets if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()]
+                uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
+        except Exception:
+            pass
+
     wallet_view = {
         "address": w.get("address"),
-        "balance": int(w.get("uxion") or w.get("balance_total") or 0),
-        "tx_count": int(w.get("tx_count") or 0),
+        "balance": uxion_val,
+        "tx_count": tx_count_val,
         "failed_txs": int(w.get("failed_txs") or 0),
         "anomaly": bool(w.get("anomaly", False)),
         "status": (w.get("status") or "ok"),
         "duration": float(w.get("duration") or 0.0),
         "endpoint": w.get("endpoint"),
+        "fallback_assets": fallback_assets,
     }
     try:
         score = calculate_risk_score({
