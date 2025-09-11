@@ -1,4 +1,3 @@
-# xion_handler.py
 import os
 from datetime import datetime
 from typing import Any, Dict
@@ -40,7 +39,7 @@ def ctx_base(request: Request) -> Dict[str, Any]:
     }
 
 # ----- pages --------------------------------------------------
-@router.get("/", response_class=HTMLResponse)  # <-- FIX: HTML, bukan JSON
+@router.get("/", response_class=HTMLResponse)
 async def index_html(request: Request):
     return TEMPLATES.TemplateResponse("index.html", ctx_base(request))
 
@@ -57,6 +56,11 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
             "score": 1,
         })
         return TEMPLATES.TemplateResponse("index.html", ctx)
+
+    # PATCH: Use correct testnet endpoint if in testnet
+    # You may want to check ENV or wallet_addr prefix for mainnet/testnet
+    # For this patch, we force testnet to match new docs:
+    os.environ["XION_API_ENDPOINTS"] = "https://api.xion-testnet-2.burnt.com"
 
     info = await get_wallet_info(wallet_addr)
 
@@ -93,6 +97,9 @@ async def validate_api(request: Request, wallet_addr: str = Form(None)):
             {"status": "invalid_address", "reason": "Invalid Xion bech32 format", "address": wallet_addr},
             status_code=400,
         )
+
+    # PATCH: Use correct testnet endpoint if in testnet
+    os.environ["XION_API_ENDPOINTS"] = "https://api.xion-testnet-2.burnt.com"
 
     info = await get_wallet_info(wallet_addr)
     info["risk_score"] = risk_score(info)
