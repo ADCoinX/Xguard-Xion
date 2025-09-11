@@ -46,7 +46,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             f"img-src 'self' data: {IMG_REMOTE}; "
             "connect-src 'self' "
                 "https://api.xion-testnet-2.burnt.com "
-                "https://api.mainnet.xion.burnt.com "
+                "https://api.xion-mainnet-1.burnt.com "
                 "https://xion-rest.publicnode.com "
                 f"{TORUS} "
                 "https://api.github.com https://github.com; "
@@ -111,10 +111,15 @@ async def validate_post(request: Request, wallet_addr: str = Form(...)):
             fallback_assets = get_xion_explorer_assets(wallet_addr)
             # Patch wallet_view to show balances from explorer if found
             if fallback_assets:
-                uxion_balances = [float(a["amount"].replace(",", "")) for a in fallback_assets if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()]
+                uxion_balances = [
+                    float(a["amount"].replace(",", "").replace("XION", "").strip())
+                    for a in fallback_assets
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").replace("XION", "").strip().replace(" ", "").replace("-", "").replace("+", "").replace("e", "").isdigit()
+                ]
                 uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
-        except Exception:
-            pass
+        except Exception as e:
+            print("Fallback error:", e)
+            fallback_assets = None
 
     wallet_view = {
         "address": w.get("address"),
