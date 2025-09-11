@@ -59,11 +59,8 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
         return TEMPLATES.TemplateResponse("index.html", ctx)
 
     # PATCH: Mainnet/testnet handling (edit here for mainnet/testnet)
-    # Example: if wallet_addr.startswith("xion1"), set mainnet endpoint
-    # If you want to force testnet, uncomment below:
-    # os.environ["XION_API_ENDPOINTS"] = "https://api.xion-testnet-2.burnt.com"
-    # If mainnet:
-    os.environ["XION_API_ENDPOINTS"] = "https://api.mainnet.xion.burnt.com"
+    # Use latest burnt.com mainnet endpoint!
+    os.environ["XION_API_ENDPOINTS"] = "https://api.xion-mainnet-1.burnt.com"
 
     info = await get_wallet_info(wallet_addr)
 
@@ -71,18 +68,22 @@ async def validate_html(request: Request, wallet_addr: str = Form(...)):
     uxion_val = float(info.get("uxion", 0.0))
     tx_count_val = int(info.get("tx_count", 0))
     fallback_assets = None
+
+    # Fallback only if REST node returns empty
     if uxion_val == 0.0 and tx_count_val == 0:
         try:
             fallback_assets = get_xion_explorer_assets(wallet_addr)
-            # Try to patch balance if fallback found
+            # Patch balance if fallback found
             if fallback_assets:
                 uxion_balances = [
-                    float(a["amount"].replace(",", "")) for a in fallback_assets
-                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()
+                    float(a["amount"].replace(",", "").replace("XION", "").strip())
+                    for a in fallback_assets
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").replace("XION", "").strip().replace(" ", "").replace("-", "").replace("+", "").replace("e", "").isdigit()
                 ]
                 uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
-        except Exception:
-            pass
+        except Exception as e:
+            print("Fallback error:", e)
+            fallback_assets = None
 
     ctx.update({
         "result": "OK" if info.get("status") in ("ok", "partial") else info.get("status"),
@@ -120,24 +121,26 @@ async def validate_api(request: Request, wallet_addr: str = Form(None)):
         )
 
     # PATCH: Mainnet/testnet handling (edit here for mainnet/testnet)
-    os.environ["XION_API_ENDPOINTS"] = "https://api.mainnet.xion.burnt.com"
+    os.environ["XION_API_ENDPOINTS"] = "https://api.xion-mainnet-1.burnt.com"
 
     info = await get_wallet_info(wallet_addr)
     uxion_val = float(info.get("uxion", 0.0))
     tx_count_val = int(info.get("tx_count", 0))
     fallback_assets = None
+
     if uxion_val == 0.0 and tx_count_val == 0:
         try:
             fallback_assets = get_xion_explorer_assets(wallet_addr)
-            # Try to patch balance if fallback found
             if fallback_assets:
                 uxion_balances = [
-                    float(a["amount"].replace(",", "")) for a in fallback_assets
-                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").isdigit()
+                    float(a["amount"].replace(",", "").replace("XION", "").strip())
+                    for a in fallback_assets
+                    if "XION" in a["symbol"] and a["amount"].replace(",", "").replace(".", "").replace("XION", "").strip().replace(" ", "").replace("-", "").replace("+", "").replace("e", "").isdigit()
                 ]
                 uxion_val = sum(uxion_balances) if uxion_balances else uxion_val
-        except Exception:
-            pass
+        except Exception as e:
+            print("Fallback error:", e)
+            fallback_assets = None
 
     info["risk_score"] = risk_score(info)
     info["fallback_assets"] = fallback_assets
