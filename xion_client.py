@@ -26,8 +26,8 @@ TESTNET_ENDPOINTS: List[str] = [
 ]
 
 MAINNET_ENDPOINTS: List[str] = [
-    "https://xion-rest.publicnode.com",
     "https://api.mainnet.xion.burnt.com",
+    "https://xion-rest.publicnode.com",
     "https://xion-mainnet-rest.chainlayer.network",
     "https://xion-mainnet-api.bigdipper.live",
     "https://xion-mainnet-api.customnode.com",
@@ -56,7 +56,7 @@ def _cb_trip(base: str, seconds: int = 180):
 # HTTP helpers
 # =========================
 async def _get_json(client: httpx.AsyncClient, url: str, timeout: float = 5.5) -> Optional[Dict[str, Any]]:
-    """GET JSON yang robust; jika bukan 200 atau JSON rosak → None."""
+    """GET robust JSON; if not 200 or broken JSON → None."""
     try:
         r = await client.get(url, timeout=timeout, follow_redirects=True)
         if r.status_code != 200 or not r.content:
@@ -98,8 +98,8 @@ async def _fetch_first_ok(client: httpx.AsyncClient, base: str, rel_paths: List[
 
 def _parse_balances_shape(obj: Optional[Dict[str, Any]]) -> Optional[list]:
     """
-    Terima dua bentuk:
-    {"balances":[...]}  ATAU  {"balances":{"balances":[...]}}
+    Accepts two shapes:
+    {"balances":[...]}  OR  {"balances":{"balances":[...]}}
     """
     if not isinstance(obj, dict):
         return None
@@ -182,28 +182,28 @@ async def _fetch_tx_count(client: httpx.AsyncClient, base: str, address: str) ->
             except Exception:
                 pass
         else:
-            # Fallback: jika node tak bagi 'total', gunakan bilangan tx_responses (bukan exact, tapi better than 0)
+            # Fallback: if node doesn't give 'total', use tx_responses count (not exact, but better than 0)
             if isinstance(data.get("tx_responses"), list):
                 total += len(data["tx_responses"])
     return total if saw else None
 
 
 # =========================
-# Probe satu endpoint
+# Probe one endpoint
 # =========================
 async def _probe_endpoint(client: httpx.AsyncClient, base: str, address: str) -> Tuple[str, Optional[Dict[str, Any]], str]:
     if _cb_blocked(base):
         return base, None, "circuit_open"
 
     try:
-        # Liveness: akaun
+        # Liveness: account
         acct = await _fetch_first_ok(client, base, _account_paths(address))
 
-        # Baki
+        # Balances
         balances = await _fetch_first_ok(client, base, _balance_paths(address))
         blist = _parse_balances_shape(balances)
 
-        # Jika balances tiada tetapi akaun wujud → treat as zero-balance success
+        # If balances missing but account exists → treat as zero-balance OK
         debug = "ok_with_balances"
         if blist is None:
             if isinstance(acct, dict) and acct.get("account"):
